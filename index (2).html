@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Critter Board: College Hoops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#efe7d8;--surface:#fbf6ec;--ink:#221d16;--muted:#6f6556;--line:#dccfb8;--accent:#b4410e;--good:#15803d;--bad:#b91c1c;--warn:#a16207;--fav:#1d4ed8;--dog:#9a3412;
+ color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--surface:#211d17;--ink:#f2ead9;--muted:#a89d8b;--line:#3b342a;--accent:#fb923c;--good:#4ade80;--bad:#f87171;--warn:#facc15;--fav:#60a5fa;--dog:#fb923c;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#17140f;--surface:#211d17;--ink:#f2ead9;--muted:#a89d8b;--line:#3b342a;--accent:#fb923c;--good:#4ade80;--bad:#f87171;--warn:#facc15;--fav:#60a5fa;--dog:#fb923c;color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.4 Barlow,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+main{max-width:720px;margin:0 auto;padding:14px 12px 40px}
+h1{font:700 28px/1 "Barlow Condensed","Arial Narrow",sans-serif;margin:2px 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs button{flex:1;font:600 14px Barlow,sans-serif;padding:8px 4px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.game{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.game.faded{opacity:.72}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.mu{font:700 18px/1.15 "Barlow Condensed",sans-serif}
+.mu .fav{color:var(--fav)} .mu .dog{color:var(--muted);font-weight:600}
+.tier{font:700 13px "Barlow Condensed",sans-serif;padding:2px 8px;border-radius:999px;background:var(--ink);color:var(--surface);white-space:nowrap}
+.tier.early{background:transparent;color:var(--muted);border:1px dashed var(--muted)}
+.lc{font-size:13px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+.lc b{color:var(--ink)}
+.flags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.f{font:600 12px Barlow,sans-serif;padding:2px 8px;border-radius:999px}
+.f.bet{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+.f.warn{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.f.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.f.info{background:color-mix(in srgb,var(--fav) 15%,transparent);color:var(--fav)}
+details{margin-top:6px}
+summary{font-size:13px;color:var(--accent);cursor:pointer}
+.pill{display:grid;grid-template-columns:7.5em 1fr 1fr;gap:6px;align-items:center;font-size:12.5px;margin-top:5px}
+.bar{position:relative;height:9px;background:color-mix(in srgb,var(--line) 70%,transparent);border-radius:5px}
+.bar i{position:absolute;top:0;bottom:0;border-radius:5px}
+.bar em{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted)}
+.xp{display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13px}
+.xp input{width:5.5em;font:500 15px Barlow,sans-serif;padding:5px 7px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.empty{text-align:center;color:var(--muted);padding:24px 8px}
+.status{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5}
+.search{width:100%;font:500 16px Barlow,sans-serif;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);margin-bottom:8px}
+.legend{font-size:12.5px;color:var(--muted);margin:2px 0 10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Critter Board</h1>
+<p class="sub" id="sub">Loading…</p>
+<div class="tabs" role="group" aria-label="View">
+ <button data-v="bet" aria-pressed="true">Bet Mode</button>
+ <button data-v="line" aria-pressed="false">Line Check</button>
+ <button data-v="teams" aria-pressed="false">Teams</button>
+ <button data-v="movers" aria-pressed="false">Movers</button>
+</div>
+<div id="view"></div>
+<div class="status" id="status"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
+let S = null, TM = {}, L = null, view = "bet";
+const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
+const short = id => (TM[id] && TM[id].short) || "";
+const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.away_name);
+function stageOf(id){ return TM[id] ? TM[id].stage : "too early"; }
+function analyze(g){
+  const r = {tier: null, flags: [], level: "too early"};
+  if(!g.fav) return r;
+  const F = TM[g.fav], D = TM[g.dog];
+  const sf = stageOf(g.fav), sd = stageOf(g.dog);
+  r.level = sf === "scored" && sd === "scored" ? "scored" : (sf !== "too early" && sd !== "too early") ? "early" : "too early";
+  if(r.level !== "too early"){
+    r.tier = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && F.pillars[p] - D.pillars[p] >= 0.5).length;
+    r.preyEdges = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && D.pillars[p] - F.pillars[p] >= 0.5).length;
+  }
+  // injuries work from day one
+  const wound = (t, side) => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh);
+  wound(g.dog).forEach(i => r.flags.push(["bet", `Wounded prey: ${short(g.dog)} without ${i.player} (${i.ppg} ppg)`]));
+  wound(g.fav).forEach(i => r.flags.push(["bad", `Favorite wounded: ${i.player} out`]));
+  if(r.level === "scored"){
+    if(D.pillars.Glass - F.pillars.Glass >= 1) r.flags.push(["warn", "Dog wins the glass"]);
+    if(F.ato < 1) r.flags.push(["warn", `${short(g.fav)} A/TO under 1.0`]);
+    if(F.efg_z != null && D.efg_z != null && F.efg_z - D.efg_z >= 1 && r.tier <= 1) r.flags.push(["warn", "Edge is mostly shooting"]);
+    const fs = PIL.reduce((s, p) => s + (F.pillars[p] || 0), 0), ds = PIL.reduce((s, p) => s + (D.pillars[p] || 0), 0);
+    if(ds - fs >= 1.5) r.flags.push(["info", `System flip: ${short(g.dog)} looks like the predator`]);
+  }
+  if(g.ml_win != null && Math.abs(g.ml_win - g.spread_win) >= 0.05) r.flags.push(["info", `Moneyline and spread disagree (${pct(g.ml_win)} vs ${pct(g.spread_win)})`]);
+  return r;
+}
+function bars(g){
+  const F = TM[g.fav], D = TM[g.dog]; if(!F || !D) return "";
+  const b = (v, col) => { if(v == null) return `<div class="bar"><em></em></div>`; const x = Math.max(-2.5, Math.min(2.5, v)) / 5;
+    return `<div class="bar"><em></em><i style="background:${col};left:${x < 0 ? (50 + x * 100) : 50}%;width:${Math.abs(x) * 100}%"></i></div>`; };
+  return `<div class="pill"><span></span><span style="color:var(--fav)">${F.short}</span><span style="color:var(--dog)">${D.short}</span></div>` +
+    PIL.map(p => `<div class="pill"><span>${p}</span>${b(F.pillars[p], "var(--fav)")}${b(D.pillars[p], "var(--dog)")}</div>`).join("") +
+    `<div class="lc">Records ${F.record} vs ${D.record} · ORBTV/100 ${F.orbtv} vs ${D.orbtv} · A/TO ${F.ato} vs ${D.ato}</div>`;
+}
+function card(g){
+  const a = analyze(g);
+  if(!g.fav) return `<div class="game faded"><div class="mu">${g.away_name} at ${g.home_name}</div><div class="lc">No line posted yet</div></div>`;
+  const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
+    `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.level === "early" ? " early" : ""}</span>`;
+  return `<div class="game${a.level === "scored" ? "" : " faded"}">
+   <div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">vs ${nm(g.dog, g)}</span></div>${tier}</div>
+   <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}${g.neutral ? " · neutral" : ""}</div>
+   ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
+   <details><summary>Pillars and exchange check</summary>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
+    <div class="xp"><label for="x${g.id}">Exchange price for ${nm(g.fav, g)} to win</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div>
+   </details></div>`;
+}
+function sortGames(gs){
+  const rank = g => { const a = analyze(g); return [a.level === "scored" ? 0 : a.level === "early" ? 1 : 2, -(a.tier || 0), g.line || 99]; };
+  return [...gs].sort((x, y) => { const a = rank(x), b = rank(y); for(let i = 0; i < 3; i++) if(a[i] !== b[i]) return a[i] - b[i]; return 0; });
+}
+function render(){
+  const v = $("view");
+  if(!S){ v.innerHTML = `<div class="empty">No slate yet.</div>`; return; }
+  const games = S.games.filter(g => g.state !== "post");
+  if(view === "bet"){
+    v.innerHTML = `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then by spread. Faded cards are early: fewer than 5 games for one team.</div>` +
+      (sortGames(games).map(card).join("") || `<div class="empty">No games left today.</div>`);
+  } else if(view === "line"){
+    const gs = games.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
+    v.innerHTML = `<div class="legend">What each spread implies about the favorite's chance to win. Type an exchange price to see the gap. A -25 favorite should be about 99%.</div>` +
+      gs.map(g => `<div class="game"><div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">vs ${nm(g.dog, g)}</span></div></div>
+        <div class="lc">Spread implies <b>${pct(g.spread_win)}</b>${g.ml_win != null ? ` · book moneyline <b>${pct(g.ml_win)}</b>` : ""}</div>
+        <div class="xp"><label for="x${g.id}">Exchange price</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div></div>`).join("");
+  } else if(view === "teams"){
+    v.innerHTML = `<input class="search" id="q" placeholder="Search a team" autocomplete="off"><div id="tl"></div>`;
+    const draw = () => { const q = $("q").value.trim().toLowerCase();
+      const list = Object.values(TM).filter(t => !q || t.name.toLowerCase().includes(q)).sort((a, b) => b.games - a.games || a.name.localeCompare(b.name)).slice(0, 40);
+      $("tl").innerHTML = list.map(t => `<div class="game${t.stage === "scored" ? "" : " faded"}"><div class="top"><div class="mu">${t.name}</div><span class="tier${t.stage === "scored" ? "" : " early"}">${t.record} · ${t.stage}</span></div>
+        <div class="lc">Critter: ${t.stage === "scored" ? "forming" : "Blob"} · avg margin ${t.margin} · A/TO ${t.ato} · ORBTV/100 ${t.orbtv}${t.big_win ? " · has a 15+ win" : ""}</div>
+        ${t.stage !== "too early" ? PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span>${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("") : ""}
+        ${(t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}: ${i.status} (${i.date})${i.top2 ? ", top-2 scorer" : ""}</div>`).join("")}</div>`).join(""); };
+    $("q").addEventListener("input", draw); draw();
+  } else {
+    v.innerHTML = `<div class="empty">Movers starts once teams reach 5 games and there's a week of daily snapshots to compare against. The snapshots are already being saved each morning.</div>`;
+  }
+}
+document.addEventListener("input", e => {
+  const el = e.target; if(!el.dataset || !el.dataset.sw) return;
+  const out = $("o" + el.id.slice(1)), x = parseFloat(el.value), sw = parseFloat(el.dataset.sw);
+  if(!out) return; if(isNaN(x)){ out.textContent = ""; return; }
+  const p = x > 1 ? x / 100 : x, gap = sw - p;
+  out.innerHTML = `<b style="color:${gap >= 0.03 ? "var(--good)" : gap <= -0.03 ? "var(--bad)" : "var(--muted)"}">${gap >= 0 ? "+" : ""}${Math.round(gap * 100)} pts ${gap >= 0.03 ? "cheap" : gap <= -0.03 ? "pricey" : "fair"}</b>`;
+});
+document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.dataset.v; document.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x === b)); render(); });
+(async () => {
+  try{
+    const [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json())));
+    S = s; TM = t.teams || {}; L = l;
+    const n = Object.values(TM).filter(x => x.stage === "scored").length;
+    $("sub").textContent = `${S.date} · ${S.games.length} games · ${n} teams with 5+ games`;
+    $("status").innerHTML = "Data: " + Object.entries(L.status || {}).map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;
+  }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
+  render();
+})();
+</script>
+</body>
+</html>
