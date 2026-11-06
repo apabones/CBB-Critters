@@ -48,6 +48,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .status{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5}
 .search{width:100%;font:500 16px Barlow,sans-serif;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);margin-bottom:8px}
 .legend{font-size:12.5px;color:var(--muted);margin:2px 0 10px}
+.duo{display:flex;align-items:center;gap:8px}
+.ic{width:46px;height:50px;flex:none}
+.ic svg{width:46px;height:50px;display:block;background:#f6efe2;border-radius:10px}
+.sp{font:600 11px Barlow,sans-serif;color:var(--muted);text-align:center;margin-top:1px}
+.day{font:700 16px "Barlow Condensed",sans-serif;margin:14px 0 6px;color:var(--accent)}
+.prev{font:600 11px Barlow,sans-serif;color:var(--muted);border:1px dashed var(--muted);border-radius:999px;padding:1px 6px;margin-left:6px}
 </style>
 </head>
 <body>
@@ -56,7 +62,8 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 <p class="sub" id="sub">Loading…</p>
 <div class="tabs" role="group" aria-label="View">
  <button data-v="bet" aria-pressed="true">Bet Mode</button>
- <button data-v="line" aria-pressed="false">Line Check</button>
+ <button data-v="up" aria-pressed="false">Upcoming</button>
+ <button data-v="line" aria-pressed="false">Lines</button>
  <button data-v="teams" aria-pressed="false">Teams</button>
  <button data-v="movers" aria-pressed="false">Movers</button>
 </div>
@@ -64,16 +71,208 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 <div class="status" id="status"></div>
 </main>
 <script>
+/* ---------- critter drawings (shared with the Serengeti page) ---------- */
+let preyCut = 1;
+const lerp = (a, b, x) => a + (b - a) * Math.max(0, Math.min(1, x));
+function hash(s){ let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296; }
+const PRED = ["Saber-tooth","Gorilla","Lion","Wolf","Weasel","Tiger","Jackal"];
+function species(t){
+  const pred = t.core >= 4 || t.net >= 0.85;
+  if (pred){
+    if (t.fang >= 0.9 && t.net >= 0.97 && t.core >= 5) return "Saber-tooth";
+    if (t.ato >= 0.85 && t.efg >= 0.85 && t.net >= 0.85) return "Gorilla";
+    if (t.reb >= 0.8 && t.paint >= 0.75) return "Lion";
+    if (t.press >= 0.7 && t.fb >= 0.6) return "Wolf";
+    if ((t.press >= 0.7 || t.stl >= 0.75) && t.reb < 0.6) return "Weasel";
+    if (t.core >= 5) return "Tiger";
+    return "Jackal";
+  }
+  if (t.prey >= preyCut) return t.ato < 0.4 ? "Rabbit" : "Goat";
+  if (t.prey >= 0.6) return t.ato < 0.4 ? "Hare" : "Ram";
+  return "Blob";
+}
+function predator(t, sp, flip){
+  const cx = 150, cy = 172, id = "g" + Math.abs(t.n.split("").reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 7));
+  const P = {"Saber-tooth":{W:96,R:86,chin:.95},"Gorilla":{W:104,R:84,chin:.55},"Lion":{W:90,R:84,chin:.85},"Wolf":{W:76,R:88,chin:1.0},
+             "Weasel":{W:60,R:94,chin:1.05},"Tiger":{W:96,R:86,chin:.85},"Jackal":{W:72,R:84,chin:1.0}}[sp];
+  const W = P.W, R = P.R;
+  const base = shade(t.col, -0.12), deep = shade(t.col, -0.62), hi = shade(t.col, 0.25), ink = "#0b0a09";
+  const face = sp === "Gorilla" ? shade(t.col, 0.45) : sp === "Lion" ? "#d9b26a" : shade(t.col, 0.38);
+  const iris = {"Weasel":"#ef4444","Gorilla":"#f97316","Wolf":"#facc15","Jackal":"#facc15"}[sp] || "#fbbf24";
+  let s = `<defs><radialGradient id="${id}h" cx="50%" cy="38%" r="65%"><stop offset="0" stop-color="${hi}"/><stop offset=".7" stop-color="${base}"/><stop offset="1" stop-color="${deep}"/></radialGradient>
+    <filter id="${id}glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+  // speed lines (fast break)
+  if (t.fb > 0.55){ const k = Math.round((t.fb - 0.5) * 10); for (let i = 0; i < k; i++){ const y = cy - 46 + i * 20; s += `<path d="M${cx - W - 18 - (i % 2) * 8} ${y} h-${34 + (i * 7) % 20}" stroke="${deep}" stroke-width="4" stroke-linecap="round" opacity=".5"/>`; } }
+  // lion mane (glass + paint)
+  if (sp === "Lion"){ const n = 26, r1 = R * 1.18, r2 = R * (1.48 + 0.18 * t.reb); let d = "";
+    for (let i = 0; i < n * 2; i++){ const a = i / (n * 2) * 2 * Math.PI - Math.PI / 2, r = i % 2 ? r1 : r2 * (0.92 + 0.08 * Math.sin(i * 1.7));
+      d += (i ? "L" : "M") + (cx + Math.cos(a) * r * 1.02).toFixed(1) + " " + (cy + 6 + Math.sin(a) * r).toFixed(1); }
+    s += `<path d="${d}Z" fill="${shade(t.col, -0.45)}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>`; }
+  // gorilla crest
+  if (sp === "Gorilla") s += `<path d="M${cx - 40} ${cy - R + 14} Q ${cx} ${cy - R - 34} ${cx + 40} ${cy - R + 14} Z" fill="${deep}" stroke="${ink}" stroke-width="3"/>`;
+  // ears
+  const torn = t.ato < 0.4;
+  [-1, 1].forEach(dd => {
+    let e;
+    if (sp === "Wolf" || sp === "Jackal"){ const bx = cx + dd * W * 0.55, by = cy - R * 0.62; e = `<path d="M${bx - dd * 4} ${by + 20} L${bx + dd * 30} ${by - 58} L${bx + dd * 40} ${by + 14} Z" fill="${base}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/><path d="M${bx + dd * 10} ${by + 10} L${bx + dd * 29} ${by - 38} L${bx + dd * 32} ${by + 8} Z" fill="${deep}"/>`; }
+    else if (sp === "Weasel"){ e = `<circle cx="${cx + dd * W * 0.8}" cy="${cy - R * 0.62}" r="14" fill="${base}" stroke="${ink}" stroke-width="3"/><circle cx="${cx + dd * W * 0.8}" cy="${cy - R * 0.62}" r="7" fill="${deep}"/>`; }
+    else if (sp === "Gorilla"){ e = `<ellipse cx="${cx + dd * (W + 4)}" cy="${cy - 6}" rx="12" ry="18" fill="${base}" stroke="${ink}" stroke-width="3"/>`; }
+    else { const bx = cx + dd * W * 0.66, by = cy - R * 0.72; e = `<path d="M${bx - dd * 26} ${by + 22} L ${bx + dd * 10} ${by - 52} L ${bx + dd * 34} ${by + 14} Z" fill="${base}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/><path d="M${bx - dd * 10} ${by + 12} L ${bx + dd * 10} ${by - 32} L ${bx + dd * 22} ${by + 10} Z" fill="${deep}"/>`; }
+    if (torn && sp !== "Gorilla") e += `<path d="M${cx + dd * W * 0.7} ${cy - R * 0.98} l${dd * 8} 10 l${dd * -10} 6" fill="#f6efe2" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    s += e;
+  });
+  // head: angular shield with V chin
+  const top = cy - R * 0.98, tY = cy - R * 0.5, ckY = cy + R * 0.08, jY = cy + R * 0.66, ch = cy + R * P.chin;
+  s += `<path d="M${cx} ${top} C ${cx + W * 0.55} ${top} ${cx + W * 0.9} ${tY - 18} ${cx + W * 0.92} ${tY} L ${cx + W} ${ckY} L ${cx + W * 0.66} ${jY} Q ${cx + W * 0.3} ${ch} ${cx} ${ch} Q ${cx - W * 0.3} ${ch} ${cx - W * 0.66} ${jY} L ${cx - W} ${ckY} L ${cx - W * 0.92} ${tY} C ${cx - W * 0.9} ${tY - 18} ${cx - W * 0.55} ${top} ${cx} ${top} Z" fill="url(#${id}h)" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/>`;
+  // cheek fur (ORBTV)
+  if (t.orbtv > 0.55 && sp !== "Gorilla"){ const k = 2 + Math.round((t.orbtv - 0.55) * 8);
+    [-1, 1].forEach(dd => { for (let i = 0; i < k; i++){ const y = ckY - 4 + i * 12, x = cx + dd * (W - 6 - i * 5); s += `<path d="M${x} ${y - 8} L${x + dd * 18} ${y + 2} L${x - dd * 2} ${y + 6}" fill="${base}" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>`; } }); }
+  // stripes (apex traits) for cats
+  if (sp === "Tiger" || sp === "Saber-tooth"){ const k = Math.max(2, t.core);
+    for (let i = 0; i < k; i++){ const dd = i % 2 ? 1 : -1, row = Math.floor(i / 2);
+      s += `<path d="M${cx + dd * (W - 4)} ${tY + 14 + row * 20} l${-dd * 28} ${6} l${dd * 10} ${8} l${-dd * 22} ${4}" fill="none" stroke="${ink}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/>`; }
+    s += `<path d="M${cx} ${top + 6} l-9 22 l9 -6 l9 6 Z" fill="${ink}" opacity=".85"/><path d="M${cx - 22} ${top + 14} l6 22 M${cx + 22} ${top + 14} l-6 22" stroke="${ink}" stroke-width="5" stroke-linecap="round" opacity=".8"/>`; }
+  // face mask / muzzle
+  const mY = cy + R * 0.34, mW = sp === "Gorilla" ? W * 0.62 : sp === "Weasel" ? W * 0.5 : W * 0.56, mH = sp === "Wolf" || sp === "Weasel" || sp === "Jackal" ? R * 0.5 : R * 0.42;
+  s += `<path d="M${cx - mW} ${mY - mH * 0.5} Q ${cx} ${mY - mH * 0.95} ${cx + mW} ${mY - mH * 0.5} Q ${cx + mW * 1.05} ${mY + mH * 0.7} ${cx} ${mY + mH} Q ${cx - mW * 1.05} ${mY + mH * 0.7} ${cx - mW} ${mY - mH * 0.5} Z" fill="${face}" stroke="${ink}" stroke-width="3"/>`;
+  // eyes: angled, glowing, close-set (paint pulls closer)
+  const ex = lerp(40, 26, t.paint) * (sp === "Gorilla" ? 1.15 : 1), ey = cy - R * 0.2;
+  [-1, 1].forEach(dd => {
+    const x = cx + dd * ex, ix = x - dd * 15, ox = x + dd * 17;
+    if (sp === "Gorilla") s += `<ellipse cx="${x}" cy="${ey + 2}" rx="20" ry="14" fill="${ink}" opacity=".55"/>`;
+    s += `<path d="M${ix} ${ey + 4} Q ${x} ${ey - 9} ${ox} ${ey - 6} Q ${x + dd * 4} ${ey + 11} ${ix} ${ey + 4} Z" fill="${iris}" filter="url(#${id}glow)" stroke="${ink}" stroke-width="2.5"/>`;
+    s += `<ellipse cx="${x + dd * 1}" cy="${ey + 1}" rx="${sp === "Gorilla" ? 4 : 2.2}" ry="${sp === "Gorilla" ? 4 : 7}" fill="${ink}"/>`;
+    // heavy angry brow (disruption makes it heavier)
+    const bw = lerp(6, 11, t.hkm) + (sp === "Gorilla" ? 6 : 0);
+    s += `<path d="M${ix - dd * 6} ${ey + 2} L${ox + dd * 6} ${ey - 16} L${ox + dd * 4} ${ey - 16 - bw} L${ix - dd * 8} ${ey - 6 - bw * 0.4} Z" fill="${ink}"/>`;
+  });
+  if (sp === "Gorilla") s += `<path d="M${cx - ex - 24} ${ey - 16} Q ${cx} ${ey - 34} ${cx + ex + 24} ${ey - 16}" fill="none" stroke="${ink}" stroke-width="9" stroke-linecap="round"/>`;
+  // nose + snarl wrinkles
+  const nY = mY - mH * 0.42;
+  if (sp === "Gorilla"){ s += `<ellipse cx="${cx}" cy="${nY + 6}" rx="24" ry="13" fill="${deep}" stroke="${ink}" stroke-width="2.5"/><ellipse cx="${cx - 9}" cy="${nY + 8}" rx="6" ry="4" fill="${ink}"/><ellipse cx="${cx + 9}" cy="${nY + 8}" rx="6" ry="4" fill="${ink}"/>`; }
+  else { s += `<path d="M${cx - 13} ${nY} L${cx + 13} ${nY} L${cx} ${nY + 13} Z" fill="${ink}"/>`;
+    [-1, 1].forEach(dd => { for (let i = 0; i < 3; i++) s += `<path d="M${cx + dd * (4 + i * 5)} ${nY - 8 - i * 7} q ${dd * 6} -4 ${dd * 12} 0" fill="none" stroke="${ink}" stroke-width="2.5" stroke-linecap="round" opacity=".7"/>`; }); }
+  // snarling open mouth
+  const oY = mY + mH * 0.28, oW = mW * 0.78, oH = 16 + 14 * t.fang;
+  s += `<path d="M${cx - oW} ${oY} Q ${cx} ${oY - 10} ${cx + oW} ${oY} Q ${cx + oW * 0.7} ${oY + oH} ${cx} ${oY + oH + 4} Q ${cx - oW * 0.7} ${oY + oH} ${cx - oW} ${oY} Z" fill="#3b0a0a" stroke="${ink}" stroke-width="3"/>`;
+  s += `<path d="M${cx - oW + 4} ${oY + 1} Q ${cx} ${oY - 7} ${cx + oW - 4} ${oY + 1} L ${cx + oW - 8} ${oY + 6} Q ${cx} ${oY - 1} ${cx - oW + 8} ${oY + 6} Z" fill="#b91c1c"/>`;
+  const nT = 7; for (let i = 0; i < nT; i++){ const x = cx - oW * 0.8 + i * (oW * 1.6 / (nT - 1)); s += `<path d="M${x - 4} ${oY + 3} L${x} ${oY + 11} L${x + 4} ${oY + 3} Z" fill="#fffaf0" stroke="${ink}" stroke-width="1.2"/>`; }
+  for (let i = 0; i < 5; i++){ const x = cx - oW * 0.5 + i * (oW / 4); s += `<path d="M${x - 4} ${oY + oH} L${x} ${oY + oH - 9} L${x + 4} ${oY + oH} Z" fill="#fffaf0" stroke="${ink}" stroke-width="1.2"/>`; }
+  // fangs: kill-shot runs; saber-tooths get the giant pair
+  const fl = sp === "Saber-tooth" ? 52 + 22 * t.fang : 10 + 22 * Math.pow(t.fang, 1.3), fw = sp === "Saber-tooth" ? 8 : 5;
+  [-1, 1].forEach(dd => { const x = cx + dd * oW * 0.62; s += `<path d="M${x - fw} ${oY + 2} Q ${x - dd * 2} ${oY + fl * 0.6} ${x + dd * 2} ${oY + fl} Q ${x + fw * 0.4} ${oY + fl * 0.5} ${x + fw} ${oY + 2} Z" fill="#fffaf0" stroke="${ink}" stroke-width="2"/>`; });
+  // flat teeth allowed runs: predators show a chipped tooth instead
+  if (t.flat > 0.65) s += `<path d="M${cx - 2} ${oY + 3} l4 0 l-1 6 l-2 -2 Z" fill="${ink}"/>`;
+  return `<svg viewBox="0 0 300 330" role="img" aria-label="${t.n} drawn as a ${sp}"><g ${flip ? `transform="translate(300 0) scale(-1 1)"` : ""}>${s}</g></svg>`;
+}
+
+function shade(hex, f){ const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const m = f > 0 ? 255 : 0, k = Math.abs(f); r = Math.round(r + (m - r) * k); g = Math.round(g + (m - g) * k); b = Math.round(b + (m - b) * k);
+  return `rgb(${r},${g},${b})`; }
+function lum(hex){ const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; }
+function creature(t, flip){
+  const sp0 = species(t); if (PRED.includes(sp0)) return predator(t, sp0, flip);
+  const rnd = hash(t.n), sp = sp0, apex = t.core / 6;
+  const cx = 150, cy = 178, R = 84;
+  const fur = shade(t.col, 0.18), dark = shade(t.col, -0.45), light = shade(t.col, 0.62);
+  const stripe = lum(t.col) < 0.4 ? shade(t.col, 0.72) : shade(t.col, -0.6);
+  let s = "";
+  // speed lines (fast break)
+  if (t.fb > 0.55){ const k = Math.round((t.fb - 0.5) * 10); for (let i = 0; i < k; i++){ const y = cy - 40 + i * 22; s += `<path d="M${cx - R - 14 - i % 2 * 10} ${y} h-${30 + rnd() * 25}" stroke="${dark}" stroke-width="4" stroke-linecap="round" opacity=".45"/>`; } }
+  // horns (losing the glass)
+  if (t.reb < 0.42){ const h = (0.42 - t.reb) / 0.42, w = 6 + 9 * h;
+    [-1, 1].forEach(d => { s += `<path d="M${cx + d * 30} ${cy - R + 18} C ${cx + d * (60 + 40 * h)} ${cy - R - 40 * h - 20}, ${cx + d * (110 + 30 * h)} ${cy - R + 10}, ${cx + d * (86 + 20 * h)} ${cy - R + 40 + 20 * h}" fill="none" stroke="#cdbf9f" stroke-width="${w}" stroke-linecap="round"/>`; }); }
+  // ears (A/TO)
+  const e = 1 - t.ato, eh = lerp(34, 130, Math.pow(e, 1.6)), rabbit = e > 0.6;
+  [-1, 1].forEach(d => {
+    const bx = cx + d * 46, by = cy - R + 22, ang = d * lerp(12, 26, e);
+    if (rabbit){
+      s += `<g transform="rotate(${ang} ${bx} ${by})"><ellipse cx="${bx}" cy="${by - eh / 2}" rx="${lerp(18, 22, e)}" ry="${eh / 2 + 6}" fill="${fur}" stroke="${dark}" stroke-width="3"/><ellipse cx="${bx}" cy="${by - eh / 2 + 4}" rx="${lerp(8, 11, e)}" ry="${eh / 2 - 8}" fill="${light}" opacity=".85"/></g>`;
+    } else {
+      s += `<g transform="rotate(${ang} ${bx} ${by})"><path d="M${bx - 26} ${by + 10} L${bx} ${by - eh} L${bx + 26} ${by + 10} Z" fill="${fur}" stroke="${dark}" stroke-width="3" stroke-linejoin="round"/><path d="M${bx - 13} ${by + 4} L${bx} ${by - eh + 22} L${bx + 13} ${by + 4} Z" fill="${light}" opacity=".8"/></g>`;
+    }
+  });
+  // head: superellipse that squares up with apex traits, wobbly when unformed
+  const n = lerp(2.05, 3.1, apex), wob = lerp(0.07, 0.015, apex), ph = rnd() * 6.28, ph2 = rnd() * 6.28;
+  let pts = [];
+  for (let i = 0; i < 72; i++){
+    const a = i / 72 * 2 * Math.PI, c = Math.cos(a), si = Math.sin(a);
+    let r = R / Math.pow(Math.pow(Math.abs(c), n) + Math.pow(Math.abs(si), n), 1 / n);
+    r *= 1 + wob * Math.sin(3 * a + ph) + wob * 0.6 * Math.sin(5 * a + ph2);
+    const cheek = Math.exp(-Math.pow((Math.abs(a - Math.PI / 2 - 0.0) > Math.PI ? 0 : Math.abs(Math.abs(c) - 0.85)) * 4, 2)) * (si > 0 ? 1 : 0.3);
+    r *= 1 + 0.08 * t.orbtv * cheek;
+    pts.push([cx + c * r * 1.06, cy + si * r * lerp(0.98, 0.9, apex)]);
+  }
+  s += `<path d="M${pts.map(p => p.map(v => v.toFixed(1)).join(" ")).join(" L")} Z" fill="${fur}" stroke="${dark}" stroke-width="4" stroke-linejoin="round"/>`;
+  // cheek fur (ORBTV)
+  if (t.orbtv > 0.55){ const k = Math.round((t.orbtv - 0.45) * 8);
+    [-1, 1].forEach(d => { for (let i = 0; i < k; i++){ const y = cy + 10 + i * 12, x = cx + d * (R * 1.04 - 2);
+      s += `<path d="M${x} ${y - 8} L${x + d * (16 + i % 2 * 6)} ${y} L${x} ${y + 6}" fill="${fur}" stroke="${dark}" stroke-width="3" stroke-linejoin="round"/>`; } }); }
+  // stripes (apex traits)
+  const st = Math.max(0, t.core - 2) * 2;
+  for (let i = 0; i < st; i++){
+    const side = i % 2 ? 1 : -1, row = Math.floor(i / 2);
+    if (row === 0){ s += `<path d="M${cx + side * 6} ${cy - R + 12} q ${side * 8} 18 0 34" fill="none" stroke="${stripe}" stroke-width="6" stroke-linecap="round" opacity=".75"/>`; continue; }
+    const y = cy - 6 + row * 16, x = cx + side * (R * 1.02 - 6);
+    s += `<path d="M${x} ${y} q ${-side * 22} 2 ${-side * 34} ${10 - row * 2}" fill="none" stroke="${stripe}" stroke-width="6" stroke-linecap="round" opacity=".75"/>`;
+  }
+  // muzzle (rim attacks)
+  const my = cy + 34, mry = lerp(20, 32, t.rim);
+  s += `<ellipse cx="${cx}" cy="${my}" rx="${lerp(36, 42, t.rim)}" ry="${mry}" fill="${light}" stroke="${dark}" stroke-width="2.5" opacity=".95"/>`;
+  s += `<path d="M${cx - 11} ${my - mry + 8} Q ${cx} ${my - mry + 2} ${cx + 11} ${my - mry + 8} Q ${cx} ${my - mry + 22} ${cx - 11} ${my - mry + 8} Z" fill="${dark}"/>`;
+  // mouth + teeth
+  const mouthY = my + mry * 0.45;
+  s += `<path d="M${cx - 26} ${mouthY - 4} Q ${cx} ${mouthY + 8} ${cx + 26} ${mouthY - 4}" fill="none" stroke="${dark}" stroke-width="3" stroke-linecap="round"/>`;
+  if (sp === "Rabbit" || sp === "Hare"){
+    s += `<rect x="${cx - 11}" y="${mouthY}" width="10" height="${lerp(12, 20, 1 - t.ato)}" rx="2" fill="#fff" stroke="${dark}" stroke-width="2"/><rect x="${cx + 1}" y="${mouthY}" width="10" height="${lerp(12, 20, 1 - t.ato)}" rx="2" fill="#fff" stroke="${dark}" stroke-width="2"/>`;
+  } else {
+    const flat = Math.round(t.flat * 5);
+    for (let i = 0; i < flat; i++){ const x = cx - flat * 4 + i * 8; s += `<rect x="${x}" y="${mouthY + 1}" width="7" height="8" rx="1" fill="#fff" stroke="${dark}" stroke-width="1.5"/>`; }
+  }
+  const fl = 3 + 28 * Math.pow(t.fang, 1.4);
+  if (t.fang > 0.3) [-1, 1].forEach(d => { const x = cx + d * 17; s += `<path d="M${x - 5} ${mouthY - 1} L${x} ${mouthY + fl} L${x + 5} ${mouthY - 1} Z" fill="#fff" stroke="${dark}" stroke-width="2" stroke-linejoin="round"/>`; });
+  // eyes (paint edge): high = forward and close, low = wide to the sides
+  const p = t.paint, ex = lerp(64, 24, p), ey = cy - 18 - (1 - p) * 4, er = 14;
+  [-1, 1].forEach(d => {
+    const x = cx + d * ex;
+    s += `<ellipse cx="${x}" cy="${ey}" rx="${er}" ry="${er * 0.92}" fill="#fffdf5" stroke="${dark}" stroke-width="3"/>`;
+    const look = d * (1 - p) * 5;
+    if (t.core >= 4) s += `<ellipse cx="${x + look}" cy="${ey}" rx="3" ry="10" fill="#141210"/>`;
+    else if (t.prey >= 0.6) s += `<rect x="${x + look - 8}" y="${ey - 2.5}" width="16" height="5" rx="2.5" fill="#141210"/>`;
+    else s += `<circle cx="${x + look}" cy="${ey}" r="5.5" fill="#141210"/>`;
+    s += `<circle cx="${x + look + 3}" cy="${ey - 4}" r="2" fill="#fff"/>`;
+    // brow (disruption)
+    const tilt = lerp(-6, 14, t.hkm);
+    s += `<path d="M${x - d * 16} ${ey - er - 6 + tilt} L${x + d * 14} ${ey - er - 6 - tilt * 0.3}" stroke="${dark}" stroke-width="${lerp(3, 6, t.hkm)}" stroke-linecap="round"/>`;
+  });
+  return `<svg viewBox="0 0 300 330" role="img" aria-label="${t.n} drawn as a ${sp}"><g ${flip ? `transform="translate(300 0) scale(-1 1)"` : ""}>${s}</g></svg>`;
+}
+
+species = t => t.sp;   /* species now come from the daily data job */
+
 const $ = id => document.getElementById(id);
 const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
-let S = null, TM = {}, L = null, view = "bet";
+let S = null, TM = {}, L = null, MV = null, view = "bet";
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
 const short = id => (TM[id] && TM[id].short) || "";
 const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.away_name);
+function blobSvg(col){
+  return `<svg viewBox="0 0 300 330"><path d="M150 70 C 230 66 262 130 250 196 C 240 262 190 286 146 282 C 92 278 46 250 44 186 C 42 120 82 74 150 70 Z" fill="${col}" stroke="#0b0a09" stroke-width="6"/><circle cx="118" cy="168" r="14" fill="#fffdf5" stroke="#0b0a09" stroke-width="4"/><circle cx="182" cy="168" r="14" fill="#fffdf5" stroke="#0b0a09" stroke-width="4"/><circle cx="118" cy="170" r="5" fill="#141210"/><circle cx="182" cy="170" r="5" fill="#141210"/></svg>`;
+}
+function icon(id, flip){
+  const t = TM[id];
+  if(!t) return `<div class="ic">${blobSvg("#9a9387")}</div>`;
+  const c = t.critter;
+  const svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
+  return `<div><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div></div>`;
+}
 function stageOf(id){ return TM[id] ? TM[id].stage : "too early"; }
 function analyze(g){
   const r = {tier: null, flags: [], level: "too early"};
-  if(!g.fav) return r;
+  if(!g.fav){
+    [g.home, g.away].forEach(t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh).forEach(i => r.flags.push(["warn", `${short(t)} without ${i.player} (${i.ppg} ppg)`])));
+    return r;
+  }
   const F = TM[g.fav], D = TM[g.dog];
   const sf = stageOf(g.fav), sd = stageOf(g.dog);
   r.level = sf === "scored" && sd === "scored" ? "scored" : (sf !== "too early" && sd !== "too early") ? "early" : "too early";
@@ -105,11 +304,15 @@ function bars(g){
 }
 function card(g){
   const a = analyze(g);
-  if(!g.fav) return `<div class="game faded"><div class="mu">${g.away_name} at ${g.home_name}</div><div class="lc">No line posted yet</div></div>`;
+  if(!g.fav){
+    const a0 = analyze(g), pv = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
+    return `<div class="game faded"><div class="duo">${icon(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${icon(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}</div>`;
+  }
   const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.level === "early" ? " early" : ""}</span>`;
+  const preview = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
   return `<div class="game${a.level === "scored" ? "" : " faded"}">
-   <div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">vs ${nm(g.dog, g)}</span></div>${tier}</div>
+   <div class="top"><div class="duo">${icon(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">vs ${nm(g.dog, g)}</span>${preview}</div>${icon(g.dog, true)}</div>${tier}</div>
    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}${g.neutral ? " · neutral" : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
    <details><summary>Pillars and exchange check</summary>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
@@ -123,12 +326,24 @@ function sortGames(gs){
 function render(){
   const v = $("view");
   if(!S){ v.innerHTML = `<div class="empty">No slate yet.</div>`; return; }
-  const games = S.games.filter(g => g.state !== "post");
+  const games = S.games.filter(g => g.state !== "post" && (!g.day || g.day === S.date));
+  const all = S.games.filter(g => g.state !== "post");
+  if(view === "up"){
+    v.innerHTML = `<input class="search" id="uq" placeholder="Find a team's next game" autocomplete="off"><div id="ul"></div>`;
+    const draw = () => { const q = $("uq").value.trim().toLowerCase();
+      const days = [...new Set(all.map(g => g.day))].sort();
+      $("ul").innerHTML = days.map(d => { let gs = sortGames(all.filter(g => g.day === d));
+        if(q) gs = gs.filter(g => (g.home_name + " " + g.away_name).toLowerCase().includes(q));
+        if(!gs.length) return "";
+        const lab = new Date(d + "T12:00:00").toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
+        return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") || `<div class="empty">No games in the next 3 days${q ? " for that team" : ""}.</div>`; };
+    $("uq").addEventListener("input", draw); draw(); return;
+  }
   if(view === "bet"){
     v.innerHTML = `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then by spread. Faded cards are early: fewer than 5 games for one team.</div>` +
       (sortGames(games).map(card).join("") || `<div class="empty">No games left today.</div>`);
   } else if(view === "line"){
-    const gs = games.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
+    const gs = all.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
     v.innerHTML = `<div class="legend">What each spread implies about the favorite's chance to win. Type an exchange price to see the gap. A -25 favorite should be about 99%.</div>` +
       gs.map(g => `<div class="game"><div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">vs ${nm(g.dog, g)}</span></div></div>
         <div class="lc">Spread implies <b>${pct(g.spread_win)}</b>${g.ml_win != null ? ` · book moneyline <b>${pct(g.ml_win)}</b>` : ""}</div>
@@ -137,13 +352,17 @@ function render(){
     v.innerHTML = `<input class="search" id="q" placeholder="Search a team" autocomplete="off"><div id="tl"></div>`;
     const draw = () => { const q = $("q").value.trim().toLowerCase();
       const list = Object.values(TM).filter(t => !q || t.name.toLowerCase().includes(q)).sort((a, b) => b.games - a.games || a.name.localeCompare(b.name)).slice(0, 40);
-      $("tl").innerHTML = list.map(t => `<div class="game${t.stage === "scored" ? "" : " faded"}"><div class="top"><div class="mu">${t.name}</div><span class="tier${t.stage === "scored" ? "" : " early"}">${t.record} · ${t.stage}</span></div>
-        <div class="lc">Critter: ${t.stage === "scored" ? "forming" : "Blob"} · avg margin ${t.margin} · A/TO ${t.ato} · ORBTV/100 ${t.orbtv}${t.big_win ? " · has a 15+ win" : ""}</div>
+      $("tl").innerHTML = list.map(t => `<div class="game${t.stage === "scored" ? "" : " faded"}"><div class="top"><div class="duo">${icon(Object.keys(TM).find(k => TM[k] === t), false)}<div class="mu">${t.name}</div></div><span class="tier${t.stage === "scored" ? "" : " early"}">${t.record} · ${t.stage}</span></div>
+        <div class="lc">${t.critter ? `${t.critter.sp}, ${t.critter.core}/6 apex traits` : "Blob until 5 games"}${t.fin_n ? ` · finisher ${t.fin_n ? Math.round(t.fin * 100) + "% of " + t.fin_n + " big leads" : ""}` : ""} · last 5: ${t.last5 || "–"} · avg margin ${t.margin} · A/TO ${t.ato} · ORBTV/100 ${t.orbtv}${t.big_win ? " · has a 15+ win" : ""}</div>
         ${t.stage !== "too early" ? PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span>${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("") : ""}
         ${(t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}: ${i.status} (${i.date})${i.top2 ? ", top-2 scorer" : ""}</div>`).join("")}</div>`).join(""); };
     $("q").addEventListener("input", draw); draw();
   } else {
-    v.innerHTML = `<div class="empty">Movers starts once teams reach 5 games and there's a week of daily snapshots to compare against. The snapshots are already being saved each morning.</div>`;
+    const M = (MV && MV.movers) || [];
+    v.innerHTML = `<div class="legend">Teams whose critter changed since about a week ago, whose last 5 games moved a pillar by 0.75+, or who won 4 of their last 5. <b>Real shift</b> = winning with better pillars. <b>Hot streak</b> = winning without them, often shooting.</div>` +
+      (M.map(m => `<div class="game"><div class="top"><div class="duo">${icon(m.team, false)}<div class="mu">${m.name}<br><span class="dog">${m.then && m.then !== m.now ? `${m.then} → ${m.now}` : m.now} · last 5: ${m.last5}</span></div></div>${m.label ? `<span class="tier${m.label.startsWith("Real") ? "" : " early"}">${m.label}</span>` : ""}</div>
+        ${Object.keys(m.jumps).length ? `<div class="flags">${Object.entries(m.jumps).map(([p, d]) => `<span class="f ${d > 0 ? "bet" : "bad"}">${p} ${d > 0 ? "+" : ""}${d.toFixed(1)}</span>`).join("")}</div>` : ""}</div>`).join("") ||
+      `<div class="empty">No movers yet. This fills in once teams reach 5 games and there's a week of daily snapshots to compare against.</div>`);
   }
 }
 document.addEventListener("input", e => {
@@ -158,8 +377,9 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
   try{
     const [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json())));
     S = s; TM = t.teams || {}; L = l;
+    try{ MV = await fetch("data/movers.json", {cache: "no-store"}).then(r => r.json()); }catch(e){ MV = null; }
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
-    $("sub").textContent = `${S.date} · ${S.games.length} games · ${n} teams with 5+ games`;
+    $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
     $("status").innerHTML = "Data: " + Object.entries(L.status || {}).map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;
   }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
   render();

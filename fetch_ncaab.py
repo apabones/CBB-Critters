@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NCAA basketball predator/prey screener: daily data job (Stage 1, early mode).
+NCAA basketball predator/prey screener: daily data job (Stage 2).
 
 Pulls:
   1. This season's team and player box scores (sportsdataverse, updated nightly from ESPN)
@@ -60,7 +60,7 @@ def load_d1():
 REQUIRED = ["game_id", "game_date", "team_id", "opponent_team_id", "team_display_name", "team_location", "team_color",
             "team_score", "opponent_team_score", "field_goals_made", "field_goals_attempted", "three_point_field_goals_made",
             "three_point_field_goals_attempted", "free_throws_attempted", "offensive_rebounds", "defensive_rebounds",
-            "total_turnovers", "steals", "blocks", "assists", "points_in_paint", "turnover_points"]
+            "total_turnovers", "steals", "blocks", "assists", "points_in_paint", "turnover_points", "fast_break_points"]
 
 
 def team_games(t, d1=None):
@@ -73,7 +73,7 @@ def team_games(t, d1=None):
                       "color": t.team_color.astype(str), "pts": n("team_score"), "opts": n("opponent_team_score")})
     for c in ["field_goals_made", "field_goals_attempted", "three_point_field_goals_made", "three_point_field_goals_attempted",
               "free_throws_attempted", "offensive_rebounds", "defensive_rebounds", "total_turnovers", "steals", "blocks",
-              "assists", "points_in_paint", "turnover_points"]:
+              "assists", "points_in_paint", "turnover_points", "fast_break_points"]:
         B[c] = n(c)
     O = B.drop(columns=["opp", "date", "name", "short", "color", "pts", "opts"]).add_prefix("o_").rename(columns={"o_g": "g"})
     M = B.merge(O, left_on=["g", "opp"], right_on=["g", "o_team"], how="left")
@@ -103,6 +103,12 @@ def team_games(t, d1=None):
     # shown on the card, not scored
     G["eFG"] = (M.field_goals_made + 0.5 * M.three_point_field_goals_made) / c1(M.field_goals_attempted)
     G["ORBTV per 100"] = (M.offensive_rebounds + M.o_total_turnovers - M.o_offensive_rebounds - M.total_turnovers) / M.poss * 100
+    # critter traits (percentiles later): paint and glass edges, disruption, fast breaks, net rating
+    G["Paint diff"] = M.points_in_paint - M.o_points_in_paint
+    G["Reb diff"] = (M.offensive_rebounds + M.defensive_rebounds) - (M.o_offensive_rebounds + M.o_defensive_rebounds)
+    G["Disruption"] = (M.steals + M.blocks) / M.poss
+    G["FB diff"] = M.fast_break_points - M.o_fast_break_points
+    G["Net per 100"] = (M.pts - M.opts) / M.poss * 100
     meta = B.drop_duplicates("team").set_index("team")[["name", "short", "color"]]
     if d1:
         meta = meta[meta.index.isin(d1)].copy()
@@ -119,6 +125,9 @@ PILLARS = {
 EXTRA = ["eFG", "ORBTV per 100", "A/TO"]
 
 
+CRIT = ["Paint diff", "Reb diff", "Disruption", "FB diff", "Net per 100", "Runs 12+", "Run pressure allowed", "Rim share"]
+
+
 def team_table(G, meta):
     comps = [c for p in PILLARS.values() for c in p] + ["eFG", "ORBTV per 100"]
     # one-pass opponent adjustment: what each opponent typically allows, vs. the league
@@ -133,17 +142,141 @@ def team_table(G, meta):
                                 big_win=("margin", lambda s: int((s >= 15).any())))
     T = agg.join(rec)
     T["ato_raw"] = G.groupby("team")["A/TO"].mean()
+    for c in CRIT:
+        T[c] = G.groupby("team")[c].mean() if c in G else float("nan")
+    if "fin_chance" in G:
+        f = G.groupby("team")[["fin_chance", "fin_conv"]].sum()
+        T["fin_chances"], T["fin_rate"] = f.fin_chance, f.fin_conv / f.fin_chance.replace(0, float("nan"))
     pool = T[T.games >= PROVISIONAL]
-    sd = pool[comps].std().replace(0, float("nan"))
-    Z = (pool[comps] - pool[comps].mean()) / sd
+    mu, sd = pool[comps].mean(), pool[comps].std().replace(0, float("nan"))
+    Z = (pool[comps] - mu) / sd
+    # last 5 games, on the same scale, for the Movers dashboard
+    last5 = adj.sort_values("date").groupby("team").tail(5).groupby("team")[comps].mean()
+    Z5 = (last5.loc[last5.index.isin(pool.index)] - mu) / sd
+    rec5 = G.sort_values("date").groupby("team").tail(5).groupby("team").win.agg(["sum", "size"])
+    T["last5"] = rec5["sum"].astype(int).astype(str) + "-" + (rec5["size"] - rec5["sum"]).astype(int).astype(str)
+    T["last5_wins"] = rec5["sum"]
     for p, cs in PILLARS.items():
-        s = sum(Z[c] * w for c, w in cs.items()) / len(cs)
-        ssd = s.std()
-        T[p] = ((s - s.mean()) / ssd).round(2) if ssd and ssd > 0 else float("nan")
+        raw = sum(Z[c] * w for c, w in cs.items()) / len(cs)
+        raw5 = sum(Z5[c] * w for c, w in cs.items()) / len(cs)
+        ssd = raw.std()
+        T[p] = ((raw - raw.mean()) / ssd).round(2) if ssd and ssd > 0 else float("nan")
+        T[p + " move"] = ((raw5 - raw) / ssd).round(2) if ssd and ssd > 0 else float("nan")
     T["eFG z"] = Z["eFG"].round(2)
+    T["eFG move"] = (Z5["eFG"] - Z["eFG"]).round(2)
     T = T.join(meta)
     T["stage"] = T.games.apply(lambda n: "scored" if n >= SCORED else "early" if n >= PROVISIONAL else "too early")
     return T
+
+
+# ---------------------------------------------------------------- 1b. play-by-play: runs, rim attacks, finishers
+def pbp_features(d1):
+    cols = ["game_id", "game_play_number", "type_text", "team_id", "scoring_play", "score_value", "home_score", "away_score",
+            "home_team_id", "away_team_id", "end_game_seconds_remaining", "shooting_play"]
+    d = pd.read_parquet(io.BytesIO(get(f"{SDV}/espn_mens_college_basketball_pbp/play_by_play_{SEASON}.parquet", raw=True)), columns=cols)
+    d = d.dropna(subset=["game_id"])
+    d["game_id"] = d.game_id.astype("int64").astype(str)
+    for c in ["team_id", "home_team_id", "away_team_id"]:
+        d[c] = pd.to_numeric(d[c], errors="coerce").fillna(-1).astype("int64").astype(str)
+    d = d.sort_values(["game_id", "game_play_number"])
+    rows = []
+    for gid, x in d.groupby("game_id", sort=False):
+        h, a = x.home_team_id.iloc[0], x.away_team_id.iloc[0]
+        if d1 and (h not in d1 or a not in d1):
+            continue
+        st = {h: dict(r12=0, rp=0, fga=0, rim=0), a: dict(r12=0, rp=0, fga=0, rim=0)}
+        sc = x[x.scoring_play.fillna(False).astype(bool) & x.team_id.isin([h, a])]
+        cur, run = None, 0
+        for t, v in zip(sc.team_id, sc.score_value.fillna(0)):
+            if t == cur:
+                run += v
+            else:
+                if cur is not None and run >= 6:
+                    st[cur]["rp"] += run - 5; st[cur]["r12"] += run >= 12
+                cur, run = t, v
+        if cur is not None and run >= 6:
+            st[cur]["rp"] += run - 5; st[cur]["r12"] += run >= 12
+        sh = x[x.shooting_play.fillna(False).astype(bool) & ~x.type_text.fillna("").str.contains("FreeThrow") & x.team_id.isin([h, a])]
+        for t, ty in zip(sh.team_id, sh.type_text):
+            st[t]["fga"] += 1; st[t]["rim"] += ty in ("LayUpShot", "DunkShot", "TipShot")
+        tt = x.end_game_seconds_remaining.astype(float).ffill().values
+        mg = (x.home_score - x.away_score).astype(float).ffill().fillna(0).values
+        fin = mg[-1] if len(mg) else 0
+        for t, o, sg in ((h, a, 1), (a, h, -1)):
+            chance = bool(((tt <= 1200) & (sg * mg >= 15)).any())
+            rows.append({"g": gid, "team": t, "Runs 12+": st[t]["r12"], "Run pressure allowed": st[o]["rp"],
+                         "Rim share": st[t]["rim"] / max(1, st[t]["fga"]), "fin_chance": int(chance), "fin_conv": int(chance and sg * fin > 20)})
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------- 1c. critters
+TIERS = {**{c: "Power" for c in (2, 7, 8, 23, 4)}, **{c: "Upper mid" for c in (62, 29, 3, 44, 18)},
+         **{c: "Mid" for c in (11, 27, 14, 10, 9, 30, 12, 45, 24, 49, 5)}}
+APEX = [0.697, 0.678, 0.64, 0.629, 0.624, 0.669]   # finisher fingerprint from the 2024-25 and 2025-26 backtests
+
+
+def critters(T):
+    """Species from percentiles within each conference tier, so a team is judged against its own level."""
+    S = T[T.stage == "scored"].copy()
+    if S.empty:
+        return {}
+    S["tier"] = S.conf.map(lambda c: TIERS.get(c, "Low") if not pd.isna(c) else "Low")
+    traits = {"fang": "Runs 12+", "flat": "Run pressure allowed", "paint": "Paint diff", "rim": "Rim share", "reb": "Reb diff",
+              "hkm": "Disruption", "fb": "FB diff", "orbtv": "ORBTV per 100", "dreb": "DRB%", "orbp": "ORB%",
+              "ato": "ato_raw", "efg": "eFG", "press": "Forced TO rate", "stl": "Steal rate", "net": "Net per 100"}
+    out = {}
+    for tier, grp in S.groupby("tier"):
+        base = grp if len(grp) >= 15 else S          # small tiers early in the season fall back to national ranks
+        R = {k: base[c].rank(pct=True) if c in base and base[c].notna().any() else pd.Series(0.5, index=base.index) for k, c in traits.items()}
+        prey_all = 1 - (R["reb"] + R["orbtv"] + R["fb"] + R["dreb"] + R["orbp"]) / 5
+        cut = prey_all.quantile(0.8)
+        for tid in grp.index:
+            v = {k: round(float(R[k].get(tid, 0.5)) if not pd.isna(R[k].get(tid, 0.5)) else 0.5, 3) for k in traits}
+            core = sum(x >= f for x, f in zip([v["fang"], v["paint"], v["rim"], v["reb"], v["hkm"], v["dreb"]], APEX))
+            prey = round(float(prey_all.get(tid, 0.5)), 3)
+            r = T.loc[tid]
+            eligible = r.wins * 2 >= r.games and bool(r.big_win)       # predator minimums: winning record and a 15-point win
+            sp = "Blob"
+            if (core >= 4 or v["net"] >= 0.85) and eligible:
+                if v["fang"] >= 0.9 and v["net"] >= 0.97 and core >= 5: sp = "Saber-tooth"
+                elif v["ato"] >= 0.85 and v["efg"] >= 0.85 and v["net"] >= 0.85: sp = "Gorilla"
+                elif v["reb"] >= 0.8 and v["paint"] >= 0.75: sp = "Lion"
+                elif v["press"] >= 0.7 and v["fb"] >= 0.6: sp = "Wolf"
+                elif (v["press"] >= 0.7 or v["stl"] >= 0.75) and v["reb"] < 0.6: sp = "Weasel"
+                elif core >= 5: sp = "Tiger"
+                else: sp = "Jackal"
+            elif prey >= cut:
+                sp = "Rabbit" if v["ato"] < 0.4 else "Goat"
+            elif prey >= 0.6:
+                sp = "Hare" if v["ato"] < 0.4 else "Ram"
+            out[tid] = dict(sp=sp, tier=tier, core=int(core), prey=prey, **{k: v[k] for k in traits if k not in ("orbp",)})
+    return out
+
+
+def movers(teams, today):
+    """Compare each team to its snapshot from about a week ago, plus last-5 pillar moves."""
+    hist = sorted(f[:-5] for f in os.listdir(os.path.join(OUT, "history")) if f.endswith(".json"))
+    old = [h for h in hist if h <= str(today - dt.timedelta(days=7))]
+    prev = json.load(open(os.path.join(OUT, "history", old[-1] + ".json"))) if old else {}
+    out = []
+    for tid, t in teams.items():
+        if t["stage"] != "scored":
+            continue
+        then = (prev.get(tid) or {}).get("species")
+        jumps = {p: m for p, m in (t.get("moves") or {}).items() if m is not None and abs(m) >= 0.75}
+        up = any(m > 0 for m in jumps.values())
+        hot = (t.get("last5_wins") or 0) >= 4
+        changed = then is not None and then != t.get("species")
+        if not (changed or jumps or hot):
+            continue
+        if hot and up: label = "Real shift"
+        elif hot and (t.get("efg_move") or 0) >= 0.75: label = "Hot streak (shooting)"
+        elif hot: label = "Hot streak"
+        else: label = ""
+        out.append(dict(team=tid, name=t["name"], then=then, now=t.get("species"), jumps=jumps, last5=t.get("last5"), label=label,
+                        since=old[-1] if old else None))
+    out.sort(key=lambda m: (m["then"] is None or m["then"] == m["now"], -len(m["jumps"])))
+    return out
 
 
 # ---------------------------------------------------------------- 2. slate + lines
@@ -175,8 +308,8 @@ def phi(x):
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-def load_slate():
-    data = get(f"{ESPN}/scoreboard?dates={TODAY.strftime('%Y%m%d')}&groups=50&limit=500")
+def load_slate(day):
+    data = get(f"{ESPN}/scoreboard?dates={day.strftime('%Y%m%d')}&groups=50&limit=500")
     games = []
     for ev in data.get("events", []):
         comp = ev["competitions"][0]
@@ -187,7 +320,7 @@ def load_slate():
         odds = (comp.get("odds") or [None])[0] or {}
         hs = num(odds.get("spread"))                       # home team's spread (negative = home favored)
         mlh, mla = ml_from(odds, "home"), ml_from(odds, "away")
-        games.append(dict(id=ev["id"], start=ev.get("date"), state=comp["status"]["type"].get("state"),
+        games.append(dict(id=ev["id"], day=str(day), start=ev.get("date"), state=comp["status"]["type"].get("state"),
                           neutral=bool(comp.get("neutralSite")), home=str(h["team"]["id"]), away=str(a["team"]["id"]),
                           home_name=h["team"].get("displayName", ""), away_name=a["team"].get("displayName", ""),
                           details=odds.get("details", ""), home_spread=hs, ml_home=mlh, ml_away=mla))
@@ -302,23 +435,32 @@ def hexcolor(c):
 # ---------------------------------------------------------------- assemble
 def main():
     os.makedirs(os.path.join(OUT, "history"), exist_ok=True)
-    T, P, meta = None, None, None
+    T, P, meta, d1 = None, None, None, None
     try:
         t, P = load_boxes()
         try:
             d1 = load_d1()
         except Exception as e:
-            d1 = None; status["D1 list"] = f"failed, non-D1 games kept: {e}"
+            status["D1 list"] = f"failed, non-D1 games kept: {e}"
         G, meta = team_games(t, d1)
+        try:
+            F = pbp_features(d1)
+            G = G.merge(F, on=["g", "team"], how="left")
+            status["play-by-play"] = f"ok: {F.g.nunique()} games"
+        except Exception as e:
+            status["play-by-play"] = f"failed, critters use box scores only: {e}"
         T = team_table(G, meta)
         status["box scores"] = f"ok: {len(G)} team-games through {G.date.max()}"
     except Exception as e:
         status["box scores"] = f"failed: {e}"
-    try:
-        slate = load_slate()
-        status["slate"] = f"ok: {len(slate)} games, {sum(g['home_spread'] is not None for g in slate)} with spreads"
-    except Exception as e:
-        slate = []; status["slate"] = f"failed: {e}"
+    slate = []
+    for k in range(3):
+        day = TODAY + dt.timedelta(days=k)
+        try:
+            slate += load_slate(day)
+        except Exception as e:
+            status[f"slate {day}"] = f"failed: {e}"
+    status["slate"] = f"{len(slate)} games over 3 days, {sum(g['home_spread'] is not None for g in slate)} with spreads"
     inj = {}
     try:
         injuries = load_injuries()
@@ -328,16 +470,22 @@ def main():
     except Exception as e:
         status["injuries"] = f"failed: {e}"
 
-    teams = {}
+    teams, crit = {}, {}
     if T is not None:
+        try:
+            crit = critters(T)
+        except Exception as e:
+            status["critters"] = f"failed: {e}"
+        f = lambda x, d=1: None if x is None or pd.isna(x) else round(float(x), d)
         for tid, r in T.iterrows():
-            teams[tid] = dict(name=r["name"], short=r["short"], color=hexcolor(r["color"]),
-                              games=int(r.games), record=f"{int(r.wins)}-{int(r.games - r.wins)}", margin=round(float(r.margin), 1),
-                              stage=r.stage, big_win=bool(r.big_win), ato=round(float(r.ato_raw), 2),
-                              efg_z=None if pd.isna(r["eFG z"]) else float(r["eFG z"]),
-                              orbtv=round(float(r["ORBTV per 100"]), 1),
-                              conf=int(r["conf"]) if "conf" in r and not pd.isna(r["conf"]) else None,
-                              pillars={p: (None if pd.isna(r[p]) else float(r[p])) for p in PILLARS})
+            c = crit.get(tid, {})
+            teams[tid] = dict(name=r["name"], short=r["short"], color=hexcolor(r["color"]), conf=None if pd.isna(r.get("conf")) else int(r["conf"]),
+                              games=int(r.games), record=f"{int(r.wins)}-{int(r.games - r.wins)}", margin=f(r.margin),
+                              stage=r.stage, big_win=bool(r.big_win), ato=f(r.ato_raw, 2), efg_z=f(r["eFG z"], 2), orbtv=f(r["ORBTV per 100"]),
+                              last5=r.get("last5"), last5_wins=None if pd.isna(r.get("last5_wins")) else int(r["last5_wins"]),
+                              efg_move=f(r.get("eFG move"), 2), fin=f(r.get("fin_rate"), 2), fin_n=None if pd.isna(r.get("fin_chances", float("nan"))) else int(r["fin_chances"]),
+                              pillars={p: f(r[p], 2) for p in PILLARS}, moves={p: f(r[p + " move"], 2) for p in PILLARS},
+                              species=c.get("sp", "Blob"), critter=c or None)
     out_games = []
     for g in slate:
         hs = g["home_spread"]
@@ -345,8 +493,7 @@ def main():
         if hs is not None and hs != 0:
             fav = g["home"] if hs < 0 else g["away"]
             line = abs(hs)
-            rec.update(fav=fav, dog=g["away"] if fav == g["home"] else g["home"], line=line,
-                       spread_win=round(phi(line / MARGIN_SD), 3))
+            rec.update(fav=fav, dog=g["away"] if fav == g["home"] else g["home"], line=line, spread_win=round(phi(line / MARGIN_SD), 3))
             mlf = g["ml_home"] if fav == g["home"] else g["ml_away"]
             mld = g["ml_away"] if fav == g["home"] else g["ml_home"]
             pf, pd_ = implied(mlf), implied(mld)
@@ -358,13 +505,16 @@ def main():
             teams[tid]["injuries"] = v
 
     stamp = NOW.isoformat(timespec="seconds") + "Z"
+    mv = movers(teams, TODAY) if teams else []
     json.dump(dict(date=str(TODAY), updated=stamp, games=out_games), open(os.path.join(OUT, "slate.json"), "w"))
     json.dump(dict(updated=stamp, teams=teams), open(os.path.join(OUT, "teams.json"), "w"), separators=(",", ":"))
-    snap = {k: dict(games=v["games"], record=v["record"], stage=v["stage"], pillars=v["pillars"], efg_z=v["efg_z"], margin=v["margin"]) for k, v in teams.items()}
+    json.dump(dict(updated=stamp, movers=mv), open(os.path.join(OUT, "movers.json"), "w"))
+    snap = {k: dict(games=v["games"], record=v["record"], stage=v["stage"], species=v["species"], pillars=v["pillars"],
+                    efg_z=v["efg_z"], margin=v["margin"]) for k, v in teams.items()}
     json.dump(snap, open(os.path.join(OUT, "history", f"{TODAY}.json"), "w"), separators=(",", ":"))
     json.dump(dict(updated=stamp, date=str(TODAY), status=status), open(os.path.join(OUT, "latest.json"), "w"))
     for k, v in status.items():
-        print(f"{k:12s} {v}")
+        print(f"{k:14s} {v}")
     if T is None and not slate:
         sys.exit(1)
 
