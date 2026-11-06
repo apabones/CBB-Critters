@@ -375,9 +375,15 @@ document.addEventListener("input", e => {
 document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.dataset.v; document.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x === b)); render(); });
 (async () => {
   try{
-    const [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json())));
+    /* Read data straight from the repo, so a slow GitHub Pages rebuild never leaves the board a day behind */
+    const m = location.hostname.match(/^([^.]+)\.github\.io$/), repo = location.pathname.split("/").filter(Boolean)[0];
+    const base = m && repo ? `https://raw.githubusercontent.com/${m[1]}/${repo}/main/data/` : "data/";
+    const load = f => fetch(base + f + ".json?t=" + Date.now(), {cache: "no-store"}).then(r => r.json());
+    let s, t, l;
+    try{ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(load)); }
+    catch(e){ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json()))); }
     S = s; TM = t.teams || {}; L = l;
-    try{ MV = await fetch("data/movers.json", {cache: "no-store"}).then(r => r.json()); }catch(e){ MV = null; }
+    try{ MV = await load("movers"); }catch(e){ MV = null; }
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
     $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
     $("status").innerHTML = "Data: " + Object.entries(L.status || {}).map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;

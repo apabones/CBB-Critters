@@ -48,13 +48,18 @@ def load_boxes():
     return t, p
 
 
+D1_INFO = {}
+
+
 def load_d1():
     """Division I teams = teams with a D1 conference in this season's schedule (about 365)."""
     s = pd.read_csv(io.BytesIO(get(f"{SDV}/espn_mens_college_basketball_schedules/mbb_schedule_{SEASON}.csv", raw=True)), low_memory=False)
-    ids = pd.concat([s[["home_id", "home_conference_id"]].set_axis(["id", "conf"], axis=1),
-                     s[["away_id", "away_conference_id"]].set_axis(["id", "conf"], axis=1)])
-    ids = ids[ids.conf.notna()].drop_duplicates("id")
-    return {str(int(i)): int(c) for i, c in zip(ids.id, ids.conf)}
+    cols = ["id", "conference_id", "display_name", "location", "color"]
+    ids = pd.concat([s[[f"home_{c}" for c in cols]].set_axis(cols, axis=1), s[[f"away_{c}" for c in cols]].set_axis(cols, axis=1)])
+    ids = ids[ids.conference_id.notna()].drop_duplicates("id")
+    for r in ids.itertuples():   # every D1 team, even before its first D1 game
+        D1_INFO[str(int(r.id))] = dict(name=r.display_name, short=r.location, color=r.color, conf=int(r.conference_id))
+    return {str(int(i)): int(c) for i, c in zip(ids.id, ids.conference_id)}
 
 
 REQUIRED = ["game_id", "game_date", "team_id", "opponent_team_id", "team_display_name", "team_location", "team_color",
@@ -398,8 +403,17 @@ def wounded(injuries, P, meta):
     # a one-game hot bench guy can't outrank the regulars: must have played at least half the team's games
     pl = pl[pl["size"] >= (pl.team.map(team_g).fillna(1) / 2).clip(lower=1)].copy()
     pl["rank"] = pl.groupby("team")["mean"].rank(ascending=False, method="first")
-    by_name = {norm(v): k for k, v in meta["name"].items()}
-    by_name.update({norm(v): k for k, v in meta["short"].items() if norm(v) not in by_name})
+    names = {k: (v["name"], v["short"]) for k, v in D1_INFO.items()} or {k: (r["name"], r["short"]) for k, r in meta.iterrows()}
+    by_name = {norm(n): k for k, (n, sh) in names.items()}
+    by_short = {norm(sh): k for k, (n, sh) in names.items() if isinstance(sh, str)}
+
+    def find_team(label):
+        key = norm(label)
+        if key in by_name:
+            return by_name[key]
+        # 'UNLV Runnin' Rebels' vs ESPN's 'UNLV Rebels': match the longest school name the label starts with
+        hits = [sh for sh in by_short if sh and key.startswith(sh)]
+        return by_short[max(hits, key=len)] if hits else None
     flags, unmatched = {}, []
     for i in injuries:
         st = i["status"].lower()
@@ -409,13 +423,14 @@ def wounded(injuries, P, meta):
             continue
         d = parse_date(i["date"])
         fresh = d is not None and (TODAY - d).days <= 4
-        tid = by_name.get(norm(i["team"]))
+        tid = find_team(i["team"])
         if tid is None:
             unmatched.append(i["team"]); continue
         roster = pl[pl.team == tid]
-        row = roster[roster.name.map(norm) == norm(i["player"])]
+        row = roster[[norm(n) == norm(i["player"]) for n in roster.name]]
         if row.empty:   # fallback within this team only: same last name and first initial
-            row = roster[roster.name.map(name_key) == name_key(i["player"])]
+            key = name_key(i["player"])
+            row = roster[[name_key(n) == key for n in roster.name]]
         rank = int(row["rank"].iloc[0]) if len(row) else None
         ppg = round(float(row["mean"].iloc[0]), 1) if len(row) else None
         flags.setdefault(tid, []).append(dict(player=i["player"], status=i["status"], date=i["date"], fresh=fresh,
@@ -486,6 +501,12 @@ def main():
                               efg_move=f(r.get("eFG move"), 2), fin=f(r.get("fin_rate"), 2), fin_n=None if pd.isna(r.get("fin_chances", float("nan"))) else int(r["fin_chances"]),
                               pillars={p: f(r[p], 2) for p in PILLARS}, moves={p: f(r[p + " move"], 2) for p in PILLARS},
                               species=c.get("sp", "Blob"), critter=c or None)
+    for tid, info in D1_INFO.items():
+        if tid not in teams:
+            teams[tid] = dict(name=info["name"], short=info["short"], color=hexcolor(info["color"]), conf=info["conf"], games=0, record="0-0",
+                              margin=None, stage="too early", big_win=False, ato=None, efg_z=None, orbtv=None, last5=None, last5_wins=None,
+                              efg_move=None, fin=None, fin_n=None, pillars={p: None for p in PILLARS}, moves={p: None for p in PILLARS},
+                              species="Blob", critter=None)
     out_games = []
     for g in slate:
         hs = g["home_spread"]
