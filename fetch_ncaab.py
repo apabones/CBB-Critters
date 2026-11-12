@@ -11,7 +11,7 @@ Builds data/slate.json, data/teams.json, data/history/<date>.json and data/lates
 Each source is independent: if one fails, the others still save, and the page shows what's missing.
 Run on GitHub (daily workflow) or locally:  python fetch_ncaab.py
 """
-import csv, datetime as dt, io, json, math, os, re, sys, time, urllib.request
+import csv, datetime as dt, html, io, json, math, os, re, sys, time, unicodedata, urllib.parse, urllib.request
 from html.parser import HTMLParser
 
 import pandas as pd
@@ -410,31 +410,39 @@ def load_scacc():
     opts = [(v, t.strip()) for v, t in re.findall(r"<option[^>]*value=[\"']?([^\"'>]*)[\"']?[^>]*>([^<]*)", sel.group(1), re.I) if v] if sel else []
     if not opts:
         raise ValueError("conference menu not found, page layout may have changed")
-    failed = []
+    failed, errors = [], []
 
     def one(o):
         v, name = o
         try:
             return scacc_parse(get(urllib.parse.urljoin(SCACC, v), raw=True).decode("utf-8", "ignore"), name)
         except Exception as e:
-            failed.append(name); return []
+            failed.append(name); errors.append(f"{type(e).__name__}: {e}"); return []
     with ThreadPoolExecutor(6) as ex:
         rows = [r for part in ex.map(one, opts) for r in part]
-    status["SCACC"] = f"ok: {len(rows)} listed across {len(opts) - len(failed)} of {len(opts)} conferences" + (f", failed: {', '.join(failed)}" if failed else "")
+    ok = len(opts) - len(failed)
+    status["SCACC"] = f"{'ok' if ok else 'FAILED'}: {len(rows)} listed across {ok} of {len(opts)} conferences" + (f", failed: {', '.join(failed[:6])}{'...' if len(failed) > 6 else ''}; first error: {errors[0][:160]}" if failed else "")
+    if not ok:
+        raise ValueError(errors[0] if errors else "no conference pages loaded")
     return rows
 
 
 SUFFIX = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b\.?", re.I)
 
 
+def plain(s):
+    """strip accents so 'San José State' matches 'San Jose State'"""
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+
+
 def norm(s):
-    s = SUFFIX.sub("", str(s).lower().replace("’", "").replace("'", ""))
+    s = SUFFIX.sub("", plain(s).lower().replace("’", "").replace("'", ""))
     return re.sub(r"[^a-z0-9]", "", s)
 
 
 def name_key(s):
     """last name + first initial, for matching 'A.J. Smith Jr.' to 'AJ Smith' or 'Cam Jones' to 'Cameron Jones'"""
-    parts = [p for p in re.sub(r"[^a-z ]", "", SUFFIX.sub("", str(s).lower())).split() if p]
+    parts = [p for p in re.sub(r"[^a-z ]", "", SUFFIX.sub("", plain(s).lower())).split() if p]
     return (parts[-1], parts[0][0]) if len(parts) >= 2 else (norm(s), "")
 
 
