@@ -58,6 +58,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .status{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.5}
 .search{width:100%;font:500 16px Barlow,sans-serif;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);margin-bottom:8px}
 .legend{font-size:12.5px;color:var(--muted);margin:2px 0 10px}
+.where{font:600 10.5px Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--line);border-radius:999px;padding:0 6px;margin-left:4px;vertical-align:2px}
 .duo{display:flex;align-items:center;gap:8px}
 .ic{width:46px;height:50px;flex:none}
 .ic svg{width:46px;height:50px;display:block;background:#f6efe2;border-radius:10px}
@@ -276,6 +277,8 @@ function icon(id, flip){
   const svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
   return `<div><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div></div>`;
 }
+/* "at" when the favorite travels, "hosts" when it's home, "vs ... (neutral)" otherwise */
+const venue = g => g.neutral ? `vs ${nm(g.dog, g)} <span class="where">neutral</span>` : g.fav === g.home ? `hosts ${nm(g.dog, g)} <span class="where">home</span>` : `at ${nm(g.dog, g)} <span class="where">road</span>`;
 function stageOf(id){ return TM[id] ? TM[id].stage : "too early"; }
 /* a new absence of a top-2 scorer: out or doubtful, and not already priced in */
 const keyOut = t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh && !i.long && (i.status === "Out" || i.status === "Doubtful"));
@@ -342,8 +345,8 @@ function card(g){
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.preyEdges ? ` · dog ${a.preyEdges}` : ""}${a.level === "early" ? " early" : ""}</span>`;
   const preview = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
   return `<div class="game${a.level === "scored" ? "" : " faded"}">
-   <div class="top"><div class="duo">${icon(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">vs ${nm(g.dog, g)}</span>${preview}</div>${icon(g.dog, true)}</div>${tier}</div>
-   <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}${g.neutral ? " · neutral" : ""}</div>
+   <div class="top"><div class="duo">${icon(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">${venue(g)}</span>${preview}</div>${icon(g.dog, true)}</div>${tier}</div>
+   <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
    ${injBlock([g.fav, g.dog])}
    <details><summary>Pillars and exchange check</summary>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
@@ -376,7 +379,7 @@ function render(){
   } else if(view === "line"){
     const gs = all.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
     v.innerHTML = `<div class="legend">What each spread implies about the favorite's chance to win. Type an exchange price to see the gap. A -25 favorite should be about 99%.</div>` +
-      gs.map(g => `<div class="game"><div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">vs ${nm(g.dog, g)}</span></div></div>
+      gs.map(g => `<div class="game"><div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">${venue(g)}</span></div></div>
         <div class="lc">Spread implies <b>${pct(g.spread_win)}</b>${g.ml_win != null ? ` · book moneyline <b>${pct(g.ml_win)}</b>` : ""}</div>
         <div class="xp"><label for="x${g.id}">Exchange price</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div></div>`).join("");
   } else if(view === "teams"){

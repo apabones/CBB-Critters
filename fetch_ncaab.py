@@ -350,8 +350,34 @@ class Table(HTMLParser):
 
 BOYDS_UPDATED = {"text": None, "date": None}
 SCACC = "https://www.scacchoops.com/"
-ALIASES = {"unc": "north carolina", "fsu": "florida state", "pitt": "pittsburgh", "uconn": "connecticut", "ole miss": "ole miss",
-           "nc state": "nc state", "usc": "usc", "ucf": "ucf", "lsu": "lsu", "smu": "smu", "tcu": "tcu", "vcu": "vcu", "unlv": "unlv"}
+ALIASES = {"appalachian state": "app state",
+           "connecticut": "uconn",
+           "csun": "cal state northridge",
+           "etsu": "east tennessee state",
+           "fau": "florida atlantic",
+           "fgcu": "florida gulf coast",
+           "fiu": "florida international",
+           "fsu": "florida state",
+           "liu": "long island university",
+           "louisiana lafayette": "louisiana",
+           "miami (fl)": "miami",
+           "mtsu": "middle tennessee",
+           "pitt": "pittsburgh",
+           "sfa": "stephen f. austin",
+           "siue": "siu edwardsville",
+           "sju": "saint joseph's",
+           "smc": "saint mary's",
+           "st. joseph's": "saint joseph's",
+           "st. mary's": "saint mary's",
+           "ucsb": "uc santa barbara",
+           "umass": "massachusetts",
+           "unc": "north carolina",
+           "uncg": "unc greensboro",
+           "uncw": "unc wilmington",
+           "unf": "north florida",
+           "usf": "south florida",
+           "utrgv": "ut rio grande valley",
+           "wku": "western kentucky"}   # injury-site name -> ESPN short name, each checked against ESPN's team list
 
 
 def load_injuries():
