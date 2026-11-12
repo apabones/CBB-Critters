@@ -348,8 +348,23 @@ class Table(HTMLParser):
         if self.inc: self.cell += d
 
 
+BOYDS_UPDATED = {"text": None, "date": None}
+SCACC = "https://www.scacchoops.com/"
+ALIASES = {"unc": "north carolina", "fsu": "florida state", "pitt": "pittsburgh", "uconn": "connecticut", "ole miss": "ole miss",
+           "nc state": "nc state", "usc": "usc", "ucf": "ucf", "lsu": "lsu", "smu": "smu", "tcu": "tcu", "vcu": "vcu", "unlv": "unlv"}
+
+
 def load_injuries():
-    tp = Table(); tp.feed(get(BOYDS, raw=True).decode("utf-8", "ignore"))
+    """Boyd's Bets table. Also records when the page says it was last updated."""
+    page = get(BOYDS, raw=True).decode("utf-8", "ignore")
+    m = re.search(r"Injuries Last Updated on\s*(?:<[^>]+>\s*)*([A-Za-z]+,\s*[A-Za-z]+ \d{1,2},\s*\d{4})", page)
+    if m:
+        BOYDS_UPDATED["text"] = m.group(1)
+        try:
+            BOYDS_UPDATED["date"] = dt.datetime.strptime(re.sub(r"^[A-Za-z]+,\s*", "", m.group(1)), "%B %d, %Y").date()
+        except Exception:
+            pass
+    tp = Table(); tp.feed(page)
     out, team = [], ""
     for r in tp.rows:
         low = [c.lower() for c in r]
@@ -363,8 +378,50 @@ def load_injuries():
             player, pos, st, date, note = r
         else:
             continue
-        out.append(dict(team=team, player=player, pos=pos, status=st, date=date, note=note))
+        stt = re.split(r"\s*[–-]\s*", st, maxsplit=1)
+        out.append(dict(team=team, player=player, pos=pos, status=stt[0].strip(), injury=stt[1].strip() if len(stt) > 1 else "",
+                        date=date, note=note, source="B", conf=None))
     return out
+
+
+def scacc_parse(page, conf):
+    """SCACC lists a bold team header, then a Player / Injury / Status / Details table."""
+    out, team = [], ""
+    for m in re.finditer(r"<(?:b|strong|h\d)[^>]*>(.*?)</(?:b|strong|h\d)>|<tr[^>]*>(.*?)</tr>", page, re.S | re.I):
+        if m.group(1) is not None:
+            t = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", m.group(1))).split())
+            if t and len(t) < 40 and not t.lower().startswith(("player", "acc ", "select")):
+                team = t
+        else:
+            cells = [" ".join(html.unescape(re.sub(r"<[^>]+>", " ", c)).split()) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", m.group(2), re.S | re.I)]
+            if len(cells) >= 3 and cells[0].lower() != "player" and re.search(r"Out|Questionable|Doubtful|Probable|Day", cells[2], re.I):
+                mm = re.match(r"(.*?)\s*\(([^)]*)\)\s*$", cells[0])
+                player, pos = (mm.group(1), mm.group(2)) if mm else (cells[0], "")
+                out.append(dict(team=team, player=player, pos=pos, status=cells[2], injury=cells[1], date="", note=cells[3] if len(cells) > 3 else "",
+                                source="S", conf=conf))
+    return out
+
+
+def load_scacc():
+    """Every conference page SCACC offers, loaded through the menu's own addresses."""
+    from concurrent.futures import ThreadPoolExecutor
+    home = get(SCACC + "acc-mens-basketball-injury-report", raw=True).decode("utf-8", "ignore")
+    sel = re.search(r"<select[^>]*>(.*?)</select>", home, re.S | re.I)
+    opts = [(v, t.strip()) for v, t in re.findall(r"<option[^>]*value=[\"']?([^\"'>]*)[\"']?[^>]*>([^<]*)", sel.group(1), re.I) if v] if sel else []
+    if not opts:
+        raise ValueError("conference menu not found, page layout may have changed")
+    failed = []
+
+    def one(o):
+        v, name = o
+        try:
+            return scacc_parse(get(urllib.parse.urljoin(SCACC, v), raw=True).decode("utf-8", "ignore"), name)
+        except Exception as e:
+            failed.append(name); return []
+    with ThreadPoolExecutor(6) as ex:
+        rows = [r for part in ex.map(one, opts) for r in part]
+    status["SCACC"] = f"ok: {len(rows)} listed across {len(opts) - len(failed)} of {len(opts)} conferences" + (f", failed: {', '.join(failed)}" if failed else "")
+    return rows
 
 
 SUFFIX = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b\.?", re.I)
@@ -382,9 +439,10 @@ def name_key(s):
 
 
 def parse_date(s):
+    s = re.sub(r"^[A-Za-z]{3,9},\s*", "", str(s).strip())          # Boyd's writes 'Sun, Nov 1'
     for fmt in ("%b %d", "%B %d", "%m/%d", "%m/%d/%Y", "%Y-%m-%d", "%b %d, %Y", "%B %d, %Y"):
         try:
-            d = dt.datetime.strptime(s.strip().replace(".", ""), fmt).date()
+            d = dt.datetime.strptime(s.replace(".", ""), fmt).date()
             if d.year == 1900:
                 d = d.replace(year=TODAY.year if d.month <= TODAY.month + 1 else TODAY.year - 1)
             return d
@@ -393,51 +451,126 @@ def parse_date(s):
     return None
 
 
-def wounded(injuries, P, meta):
-    """Out/Doubtful, reported in the last 4 days, not season-long, and a top-2 scorer this season."""
-    n = lambda c: pd.to_numeric(P[c], errors="coerce").fillna(0)
-    pl = pd.DataFrame({"team": P.team_id.astype(str), "name": P.athlete_display_name, "pts": n("points"), "min": n("minutes")})
-    pl = pl[pl["min"] > 0]
-    team_g = P[pd.to_numeric(P.minutes, errors="coerce").fillna(0) > 0].groupby(P.team_id.astype(str)).game_id.nunique()
-    pl = pl.groupby(["team", "name"]).pts.agg(["mean", "size"]).reset_index()
-    # a one-game hot bench guy can't outrank the regulars: must have played at least half the team's games
-    pl = pl[pl["size"] >= (pl.team.map(team_g).fillna(1) / 2).clip(lower=1)].copy()
-    pl["rank"] = pl.groupby("team")["mean"].rank(ascending=False, method="first")
+def team_finder(meta):
     names = {k: (v["name"], v["short"]) for k, v in D1_INFO.items()} or {k: (r["name"], r["short"]) for k, r in meta.iterrows()}
     by_name = {norm(n): k for k, (n, sh) in names.items()}
     by_short = {norm(sh): k for k, (n, sh) in names.items() if isinstance(sh, str)}
 
-    def find_team(label):
-        key = norm(label)
+    def find(label, conf=None):
+        low = str(label).lower().strip()
+        if low == "miami":
+            return by_short.get("miamioh") if conf and "mid-american" in conf.lower() else by_short.get("miami")
+        low = ALIASES.get(low, low)
+        key = norm(low)
         if key in by_name:
             return by_name[key]
-        # 'UNLV Runnin' Rebels' vs ESPN's 'UNLV Rebels': match the longest school name the label starts with
+        if key in by_short:
+            return by_short[key]
+        # 'UNLV Runnin' Rebels' vs ESPN's 'UNLV Rebels': longest school name the label starts with
         hits = [sh for sh in by_short if sh and key.startswith(sh)]
         return by_short[max(hits, key=len)] if hits else None
-    flags, unmatched = {}, []
-    for i in injuries:
-        st = i["status"].lower()
-        if not (st.startswith("out") or "doubt" in st):
-            continue
-        if re.search(r"season|indefinite|redshirt", (i["note"] + " " + st).lower()):
-            continue
-        d = parse_date(i["date"])
-        fresh = d is not None and (TODAY - d).days <= 4
-        tid = find_team(i["team"])
+    return find
+
+
+SEV = [("out", 4), ("doubt", 3), ("question", 2), ("day", 2), ("prob", 1)]
+
+
+def severity(st):
+    s = str(st).lower()
+    return next((v for k, v in SEV if k in s), 2)
+
+
+def rosters(P):
+    """Scoring ranks (regulars only) plus who played in each team's last two games."""
+    P = P.copy()
+    P["team"] = P.team_id.astype(str)
+    P["mins"] = pd.to_numeric(P.minutes, errors="coerce").fillna(0)
+    P["pts"] = pd.to_numeric(P.points, errors="coerce").fillna(0)
+    dcol = "game_date_time" if "game_date_time" in P else "game_date"
+    pl = P[P.mins > 0]
+    tg = pl.groupby(["team", "game_id"])[dcol].first().reset_index().sort_values(dcol)
+    last2 = {t: set(g.game_id) for t, g in tg.groupby("team").tail(2).groupby("team")}
+    last1 = {t: set(g.game_id) for t, g in tg.groupby("team").tail(1).groupby("team")}
+    team_g = tg.groupby("team").game_id.nunique()
+    agg = pl.groupby(["team", "athlete_display_name"]).agg(ppg=("pts", "mean"), gp=("pts", "size")).reset_index()
+    by = pl.groupby(["team", "athlete_display_name"]).game_id.apply(set).to_dict()
+    agg["l2"] = [len(by[(t, n)] & last2.get(t, set())) for t, n in zip(agg.team, agg.athlete_display_name)]
+    agg["l1"] = [len(by[(t, n)] & last1.get(t, set())) for t, n in zip(agg.team, agg.athlete_display_name)]
+    reg = agg[agg.gp >= (agg.team.map(team_g).fillna(1) / 2).clip(lower=1)].copy()
+    reg["rank"] = reg.groupby("team").ppg.rank(ascending=False, method="first")
+    return agg, reg
+
+
+def build_injuries(boyds, scacc, P, meta):
+    """Merge both sources, resolve teams and players, and flag which absences are new."""
+    find = team_finder(meta)
+    agg, reg = rosters(P)
+    age = (TODAY - BOYDS_UPDATED["date"]).days if BOYDS_UPDATED["date"] else None
+    boyds_stale = age is None or age > 2
+    merged, unmatched = {}, []
+    for i in list(scacc) + list(boyds):
+        tid = find(i["team"], i.get("conf"))
         if tid is None:
             unmatched.append(i["team"]); continue
-        roster = pl[pl.team == tid]
-        row = roster[[norm(n) == norm(i["player"]) for n in roster.name]]
-        if row.empty:   # fallback within this team only: same last name and first initial
-            key = name_key(i["player"])
-            row = roster[[name_key(n) == key for n in roster.name]]
-        rank = int(row["rank"].iloc[0]) if len(row) else None
-        ppg = round(float(row["mean"].iloc[0]), 1) if len(row) else None
-        flags.setdefault(tid, []).append(dict(player=i["player"], status=i["status"], date=i["date"], fresh=fresh,
-                                              rank=rank, ppg=ppg, top2=bool(rank and rank <= 2)))
+        key = (tid, norm(i["player"]))
+        i = dict(i, tid=tid)
+        if key not in merged:
+            merged[key] = dict(i, sources={i["source"]}, boyds_date=i["date"] if i["source"] == "B" else "")
+            continue
+        m = merged[key]
+        m["sources"].add(i["source"])
+        if i["source"] == "B":
+            m["boyds_date"] = i["date"]
+            m["note"] = m.get("note") or i["note"]
+            m["injury"] = m.get("injury") or i["injury"]
+            if not boyds_stale and severity(i["status"]) > severity(m["status"]):
+                m["status"] = i["status"]                    # fresh Boyd's and worse: be cautious
+    # first-seen tracking across daily runs
+    path = os.path.join(OUT, "injury_state.json")
+    old = json.load(open(path)) if os.path.exists(path) else None
+    state, out = {}, {}
+    for (tid, pk), m in merged.items():
+        k = f"{tid}|{pk}"
+        o = (old or {}).get(k)
+        sev_now = severity(m["status"])
+        first = o["first_seen"] if o else ("before" if old is None else str(TODAY))
+        changed = o.get("changed", first) if o else first
+        if o and sev_now > o.get("sev", sev_now):
+            changed = str(TODAY)                              # got worse, so it counts as new again
+        bd = parse_date(m.get("boyds_date") or "")
+        if bd and (first == "before" or (first != "before" and bd < dt.date.fromisoformat(first))):
+            first = str(bd)
+        state[k] = dict(first_seen=first, changed=changed, sev=sev_now, status=m["status"])
+        when = max((dt.date.fromisoformat(x) for x in (first, changed) if x != "before"), default=None)
+        listed_recent = when is not None and (TODAY - when).days <= 4
+        # a player who played his team's last game and is listed out now is a new absence; one who already missed games is priced in
+        sub, rsub = agg[agg.team == tid], reg[reg.team == tid]
+        row = sub[[norm(n) == pk for n in sub.athlete_display_name]]
+        if row.empty:
+            row = sub[[name_key(n) == name_key(m["player"]) for n in sub.athlete_display_name]]
+        rk = rsub[[norm(n) == pk or name_key(n) == name_key(m["player"]) for n in rsub.athlete_display_name]]
+        gp = int(row.gp.iloc[0]) if len(row) else None
+        played_last = bool(row.l1.iloc[0]) if len(row) else None
+        missed = bool(len(row) and gp >= 3 and row.l2.iloc[0] == 0)
+        rank = int(rk["rank"].iloc[0]) if len(rk) else None
+        ppg = round(float(rk.ppg.iloc[0]), 1) if len(rk) else (round(float(row.ppg.iloc[0]), 1) if len(row) else None)
+        text = f"{m.get('note', '')} {m.get('injury', '')} {m['status']}".lower()
+        long = bool(re.search(r"season|indefinite|acl|achilles|redshirt|surgery|months", text))
+        src = "".join(sorted(m["sources"]))
+        out.setdefault(tid, []).append(dict(player=m["player"], pos=m.get("pos", ""), status=m["status"].split()[0].title() if m["status"] else "",
+                                            injury=m.get("injury", ""), source=src, first_seen=first, fresh=bool(played_last if played_last is not None else listed_recent),
+                                            missed=missed, played_last=played_last, long=long, rank=rank, ppg=ppg, top2=bool(rank and rank <= 2),
+                                            stale=bool(src == "B" and boyds_stale), sev=sev_now))
+    os.makedirs(OUT, exist_ok=True)
+    json.dump(state, open(path, "w"), separators=(",", ":"))
+    for v in out.values():
+        v.sort(key=lambda x: (not x["top2"], -x["sev"], x["rank"] or 99))
+    b = f"Boyd's {sum(1 for m in merged.values() if 'B' in m['sources'])} players, last updated {BOYDS_UPDATED['text'] or 'unknown'}" + (f" ({age} days old, so SCACC wins any disagreement)" if boyds_stale and age is not None else "")
+    status["injury sources"] = f"{b}; SCACC {sum(1 for m in merged.values() if 'S' in m['sources'])} players; {len(merged)} unique, {sum(len(v) for v in out.values())} matched to teams"
     if unmatched:
         status["injury teams not matched"] = ", ".join(sorted(set(unmatched)))[:300]
-    return flags
+    status["injury_meta"] = dict(boyds_updated=BOYDS_UPDATED["text"], boyds_age_days=age, scacc_ok="SCACC" in status and str(status["SCACC"]).startswith("ok"))
+    return out
 
 
 def hexcolor(c):
@@ -476,14 +609,20 @@ def main():
         except Exception as e:
             status[f"slate {day}"] = f"failed: {e}"
     status["slate"] = f"{len(slate)} games over 3 days, {sum(g['home_spread'] is not None for g in slate)} with spreads"
-    inj = {}
+    inj, boyds, scacc = {}, [], []
     try:
-        injuries = load_injuries()
-        if T is not None:
-            inj = wounded(injuries, P, meta)
-        status["injuries"] = f"ok: {len(injuries)} listed, {sum(len(v) for v in inj.values())} matched to teams"
+        boyds = load_injuries()
     except Exception as e:
-        status["injuries"] = f"failed: {e}"
+        status["Boyd's"] = f"failed: {e}"
+    try:
+        scacc = load_scacc()
+    except Exception as e:
+        status["SCACC"] = f"failed: {e}"
+    if T is not None and (boyds or scacc):
+        try:
+            inj = build_injuries(boyds, scacc, P, meta)
+        except Exception as e:
+            status["injuries"] = f"failed: {e}"
 
     teams, crit = {}, {}
     if T is not None:

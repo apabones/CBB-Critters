@@ -40,6 +40,15 @@ details{margin-top:6px}
 summary{font-size:13px;color:var(--accent);cursor:pointer}
 .pill{display:grid;grid-template-columns:7.5em 1fr 1fr 2.6em;gap:6px;align-items:center;font-size:12.5px;margin-top:5px}
 .gap{text-align:right;font-variant-numeric:tabular-nums}
+.inj{font-size:12.5px;margin-top:6px;line-height:1.5}
+.inj .tm{font-weight:700;margin-right:4px}
+.inj .i{display:inline-block;margin:0 6px 2px 0;padding:1px 7px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.inj .i.out{background:color-mix(in srgb,var(--bad) 16%,transparent);border-color:transparent;color:var(--bad);font-weight:600}
+.inj .i.dbt{background:color-mix(in srgb,var(--warn) 18%,transparent);border-color:transparent;color:var(--warn);font-weight:600}
+.inj .i.q{color:var(--muted)}
+.inj .i.old{opacity:.6}
+.inj .none{color:var(--muted)}
+.banner{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--ink);border-radius:10px;padding:7px 10px;font-size:12.5px;margin-bottom:8px}
 .bar{position:relative;height:9px;background:color-mix(in srgb,var(--line) 70%,transparent);border-radius:5px}
 .bar i{position:absolute;top:0;bottom:0;border-radius:5px}
 .bar em{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--muted)}
@@ -268,10 +277,26 @@ function icon(id, flip){
   return `<div><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div></div>`;
 }
 function stageOf(id){ return TM[id] ? TM[id].stage : "too early"; }
+/* a new absence of a top-2 scorer: out or doubtful, and not already priced in */
+const keyOut = t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh && !i.long && (i.status === "Out" || i.status === "Doubtful"));
+function injBlock(ids){
+  const one = t => {
+    const list = (TM[t] || {}).injuries || [];
+    const chips = list.slice(0, 5).map(i => {
+      const cls = i.status === "Out" ? "out" : i.status === "Doubtful" ? "dbt" : "q";
+      const bits = [i.ppg != null ? `${i.ppg} ppg` : "", i.rank && i.rank <= 5 ? `#${i.rank} scorer` : ""].filter(Boolean).join(", ");
+      const tag = i.fresh && cls !== "q" ? " · new" : i.long ? " · long-term" : i.missed ? " · already missing" : "";
+      return `<span class="i ${cls}${i.stale || i.long || i.missed ? " old" : ""}" title="${i.injury || ""}${i.source ? " · " + i.source : ""}">${i.player}${bits ? ` (${bits})` : ""} ${i.status.toLowerCase()}${tag}</span>`;
+    }).join("");
+    const more = list.length > 5 ? `<span class="none">+${list.length - 5} more on the Teams tab</span>` : "";
+    return `<div class="inj"><span class="tm">${(TM[t] || {}).short || ""}</span>${chips || `<span class="none">none listed</span>`}${more}</div>`;
+  };
+  return ids.map(one).join("");
+}
 function analyze(g){
   const r = {tier: null, flags: [], level: "too early"};
   if(!g.fav){
-    [g.home, g.away].forEach(t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh).forEach(i => r.flags.push(["warn", `${short(t)} without ${i.player} (${i.ppg} ppg)`])));
+    [g.home, g.away].forEach(t => keyOut(t).forEach(i => r.flags.push(["warn", `${short(t)} without ${i.player} (${i.ppg} ppg)`])));
     return r;
   }
   const F = TM[g.fav], D = TM[g.dog];
@@ -282,9 +307,9 @@ function analyze(g){
     r.preyEdges = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && D.pillars[p] - F.pillars[p] >= 0.5).length;
   }
   // injuries work from day one
-  const wound = (t, side) => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.fresh);
-  wound(g.dog).forEach(i => r.flags.push(["bet", `Wounded prey: ${short(g.dog)} without ${i.player} (${i.ppg} ppg)`]));
-  wound(g.fav).forEach(i => r.flags.push(["bad", `Favorite wounded: ${i.player} out`]));
+  keyOut(g.dog).forEach(i => r.flags.push(["bet", `Wounded prey: ${short(g.dog)} without ${i.player} (${i.ppg} ppg${i.status === "Doubtful" ? ", doubtful" : ""})`]));
+  keyOut(g.fav).forEach(i => r.flags.push(["bad", `Favorite wounded: ${i.player} ${i.status.toLowerCase()} (${i.ppg} ppg)`]));
+  [g.fav, g.dog].forEach(t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.status === "Questionable" && !i.long).forEach(i => r.flags.push(["info", `${short(t)}: ${i.player} (${i.ppg} ppg) questionable`])));
   if(r.level === "scored"){
     if(D.pillars.Glass - F.pillars.Glass >= 1) r.flags.push(["warn", "Dog wins the glass"]);
     if(F.ato < 1) r.flags.push(["warn", `${short(g.fav)} A/TO under 1.0`]);
@@ -311,7 +336,7 @@ function card(g){
   const a = analyze(g);
   if(!g.fav){
     const a0 = analyze(g), pv = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
-    return `<div class="game faded"><div class="duo">${icon(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${icon(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}</div>`;
+    return `<div class="game faded"><div class="duo">${icon(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${icon(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
   }
   const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.preyEdges ? ` · dog ${a.preyEdges}` : ""}${a.level === "early" ? " early" : ""}</span>`;
@@ -320,6 +345,7 @@ function card(g){
    <div class="top"><div class="duo">${icon(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">vs ${nm(g.dog, g)}</span>${preview}</div>${icon(g.dog, true)}</div>${tier}</div>
    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}${g.neutral ? " · neutral" : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
+   ${injBlock([g.fav, g.dog])}
    <details><summary>Pillars and exchange check</summary>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
     <div class="xp"><label for="x${g.id}">Exchange price for ${nm(g.fav, g)} to win</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div>
    </details></div>`;
@@ -360,7 +386,7 @@ function render(){
       $("tl").innerHTML = list.map(t => `<div class="game${t.stage === "scored" ? "" : " faded"}"><div class="top"><div class="duo">${icon(Object.keys(TM).find(k => TM[k] === t), false)}<div class="mu">${t.name}</div></div><span class="tier${t.stage === "scored" ? "" : " early"}">${t.record} · ${t.stage}</span></div>
         <div class="lc">${t.critter ? `${t.critter.sp}, ${t.critter.core}/6 apex traits` : "Blob until 5 games"}${t.fin_n ? ` · finisher ${t.fin_n ? Math.round(t.fin * 100) + "% of " + t.fin_n + " big leads" : ""}` : ""} · last 5: ${t.last5 || "–"} · avg margin ${t.margin} · A/TO ${t.ato} · ORBTV/100 ${t.orbtv}${t.big_win ? " · has a 15+ win" : ""}</div>
         ${t.stage !== "too early" ? PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span>${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("") : ""}
-        ${(t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}: ${i.status} (${i.date})${i.top2 ? ", top-2 scorer" : ""}</div>`).join("")}</div>`).join(""); };
+        ${(t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""} · ${i.source === "S" ? "SCACC" : i.source === "B" ? "Boyd's" : "both sources"}</div>`).join("")}</div>`).join(""); };
     $("q").addEventListener("input", draw); draw();
   } else {
     const M = (MV && MV.movers) || [];
@@ -391,7 +417,9 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
     try{ MV = await load("movers"); }catch(e){ MV = null; }
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
     $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
-    $("status").innerHTML = "Data: " + Object.entries(L.status || {}).map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;
+    $("status").innerHTML = "Data: " + Object.entries(L.status || {}).filter(([k]) => k !== "injury_meta").map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;
+    const im = (L.status || {}).injury_meta;
+    if(im && (im.boyds_age_days == null || im.boyds_age_days > 3)) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Boyd's injury list was last updated ${im.boyds_updated || "a while ago"}. SCACC is the live source for injuries right now.</div>`);
   }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
   render();
 })();
