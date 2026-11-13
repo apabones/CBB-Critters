@@ -48,6 +48,22 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .inj .i.q{color:var(--muted)}
 .inj .i.old{opacity:.6}
 .inj .none{color:var(--muted)}
+.pick{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line)}
+.seg{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:5px;font-size:12.5px}
+.seg span{color:var(--muted);min-width:5.2em}
+.seg button{font:600 13px Barlow,sans-serif;padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.save{margin-top:7px;font:700 14px Barlow,sans-serif;padding:7px 14px;border-radius:9px;border:0;background:var(--accent);color:#fff}
+.save:disabled{opacity:.45}
+.mine{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px}
+.mine b{font:700 15px "Barlow Condensed",sans-serif}
+.st{font:700 11px Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:999px;border:1px solid var(--line)}
+.st.win{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good);border-color:transparent}
+.st.loss{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad);border-color:transparent}
+.link{background:none;border:0;color:var(--accent);font:600 13px Barlow,sans-serif;padding:0;text-decoration:underline}
+.setup input{width:100%;font:500 14px Barlow,sans-serif;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:6px 0}
+.rec{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;font-size:13.5px;font-variant-numeric:tabular-nums;margin-top:4px}
+.rec .h{color:var(--muted);font-size:12px}
 .banner{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--ink);border-radius:10px;padding:7px 10px;font-size:12.5px;margin-bottom:8px}
 .bar{position:relative;height:9px;background:color-mix(in srgb,var(--line) 70%,transparent);border-radius:5px}
 .bar i{position:absolute;top:0;bottom:0;border-radius:5px}
@@ -72,11 +88,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 <h1>Critter Board</h1>
 <p class="sub" id="sub">Loading…</p>
 <div class="tabs" role="group" aria-label="View">
- <button data-v="bet" aria-pressed="true">Bet Mode</button>
- <button data-v="up" aria-pressed="false">Upcoming</button>
+ <button data-v="up" aria-pressed="true">Upcoming</button>
+ <button data-v="bet" aria-pressed="false">Bet Mode</button>
  <button data-v="line" aria-pressed="false">Lines</button>
  <button data-v="teams" aria-pressed="false">Teams</button>
  <button data-v="movers" aria-pressed="false">Movers</button>
+ <button data-v="record" aria-pressed="false">Record</button>
 </div>
 <div id="view"></div>
 <div class="status" id="status"></div>
@@ -263,7 +280,7 @@ species = t => t.sp;   /* species now come from the daily data job */
 
 const $ = id => document.getElementById(id);
 const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
-let S = null, TM = {}, L = null, MV = null, view = "bet";
+let S = null, TM = {}, L = null, MV = null, view = "up";
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
 const short = id => (TM[id] && TM[id].short) || "";
 const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.away_name);
@@ -335,6 +352,93 @@ function bars(g){
     `<div class="lc">Gap = favorite minus underdog. Blue counts toward the favorite's tier, orange is a real underdog edge, gray is too small to count.</div>` +
     `<div class="lc">Records ${F.record} vs ${D.record} · ORBTV/100 ${F.orbtv} vs ${D.orbtv} · A/TO ${F.ato} vs ${D.ato}</div>`;
 }
+/* ---------- pick log (Google Sheet) ---------- */
+const LOG = {url: "", rows: [], loaded: false, error: ""}, SEL = {};
+try{ LOG.url = localStorage.getItem("critterLogUrl") || ""; }catch(e){}
+async function loadLog(){
+  if(!LOG.url){ LOG.loaded = true; return; }
+  try{ const j = await (await fetch(LOG.url + (LOG.url.includes("?") ? "&" : "?") + "t=" + Date.now())).json();
+    LOG.rows = j.rows || []; LOG.error = ""; }catch(e){ LOG.error = "Couldn't reach your pick sheet. Check the link in Bet Mode."; }
+  LOG.loaded = true;
+}
+async function postLog(body){ const r = await fetch(LOG.url, {method: "POST", body: JSON.stringify(body)}); return r.json(); }
+const pickOf = gid => LOG.rows.filter(r => String(r.game_id) === String(gid)).slice(-1)[0];
+const american = n => n == null ? "" : (n > 0 ? "+" : "") + n;
+const impliedML = n => n == null ? "" : (n < 0 ? -n / (-n + 100) : 100 / (n + 100)).toFixed(3);
+function pickLabel(g, side, market){
+  const team = side === "fav" ? g.fav : g.dog, name = nm(team, g);
+  if(market === "ml"){ const ml = team === g.home ? g.ml_home : g.ml_away; return `${name} ML${ml != null ? " " + american(ml) : ""}`; }
+  return `${name} ${side === "fav" ? "-" : "+"}${g.line}`;
+}
+function pickBlock(g){
+  if(!g.fav || g.state === "post") return "";
+  if(!LOG.url) return `<div class="pick" id="pk-${g.id}"><button class="link" data-goto="bet">Set up your pick log to track picks</button></div>`;
+  const mine = pickOf(g.id);
+  if(mine) return `<div class="pick" id="pk-${g.id}"><div class="mine">Your pick: <b>${mine.pick}</b> · ${mine.market === "ml" ? "moneyline" : "spread"} · confidence ${mine.confidence}/5 <span class="st ${mine.status}">${mine.status}</span>${mine.status === "pending" ? ` <button class="link" data-del="${mine.id}" data-gid="${g.id}">remove</button>` : ""}</div></div>`;
+  const s = SEL[g.id] || {}, b = (k, v, t) => `<button data-pk="${g.id}" data-k="${k}" data-val="${v}" aria-pressed="${s[k] == v}">${t}</button>`;
+  const ready = s.side && s.market && s.conf;
+  return `<div class="pick" id="pk-${g.id}">
+    <div class="seg"><span>Pick</span>${b("side", "fav", nm(g.fav, g))}${b("side", "dog", nm(g.dog, g))}</div>
+    <div class="seg"><span>Bet</span>${b("market", "spread", "Spread")}${b("market", "ml", "Moneyline")}</div>
+    <div class="seg"><span>Confidence</span>${[1, 2, 3, 4, 5].map(n => b("conf", n, n)).join("")}</div>
+    <button class="save" data-save="${g.id}" ${ready ? "" : "disabled"}>${ready ? "Save pick: " + pickLabel(g, s.side, s.market) : "Choose all three to save"}</button>
+  </div>`;
+}
+const gameById = id => S && S.games.find(x => String(x.id) === String(id));
+function redrawPick(gid){ const el = $("pk-" + gid), g = gameById(gid); if(el && g) el.outerHTML = pickBlock(g); }
+async function savePick(gid){
+  const g = gameById(gid), s = SEL[gid]; if(!g || !s) return;
+  const a = analyze(g), team = s.side === "fav" ? g.fav : g.dog, ml = team === g.home ? g.ml_home : g.ml_away;
+  const injs = [g.fav, g.dog].flatMap(t => ((TM[t] || {}).injuries || []).filter(i => i.top2 || i.fresh).map(i => `${short(t)}: ${i.player} ${i.status}`));
+  const pick = {id: `${g.id}|${s.side}|${s.market}`, game_id: g.id, game_date: g.day || S.date, matchup: `${nm(g.fav, g)} -${g.line} ${venue(g).replace(/<[^>]+>/g, "").trim()}`,
+    pick: pickLabel(g, s.side, s.market), pick_team_id: team, side: s.side, market: s.market, line: s.side === "fav" ? -g.line : g.line, ml_price: ml ?? "",
+    implied: s.market === "ml" ? impliedML(ml) : "", confidence: s.conf, tier: a.tier ?? "", dog_edges: a.preyEdges ?? "", stage: a.level,
+    flags: a.flags.map(f => f[1]).join(" | "), fav_species: (TM[g.fav] || {}).species || "", dog_species: (TM[g.dog] || {}).species || "", injuries: injs.join(" | ")};
+  const btn = document.querySelector(`[data-save="${gid}"]`); if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
+  try{ const r = await postLog({action: "add", pick}); if(!r.ok) throw new Error(r.error || "not saved");
+    LOG.rows.push(Object.assign({}, pick, {status: "pending"})); delete SEL[gid]; redrawPick(gid);
+  }catch(e){ if(btn){ btn.disabled = false; btn.textContent = "Couldn't save. Tap to retry"; } }
+}
+async function removePick(id, gid){
+  try{ const r = await postLog({action: "delete", id}); if(!r.ok) throw new Error(r.error);
+    LOG.rows = LOG.rows.filter(x => x.id !== id); if(view === "bet") render(); else redrawPick(gid);
+  }catch(e){ alert("Couldn't remove it: " + e.message); }
+}
+function setupBox(){
+  return `<div class="game setup"><div class="mu">Connect your Google Sheet pick log</div>
+    <div class="lc">Paste the Web app link from your sheet's Apps Script deployment (it ends in /exec). It's saved only in this browser.</div>
+    <input id="logurl" placeholder="https://script.google.com/macros/s/…/exec" value="${LOG.url}" autocomplete="off">
+    <button class="save" data-act="seturl">Connect</button> <span id="logmsg" class="lc"></span></div>`;
+}
+function renderBet(v){
+  if(!LOG.url){ v.innerHTML = setupBox(); return; }
+  if(!LOG.loaded){ v.innerHTML = `<div class="empty">Loading your picks…</div>`; return; }
+  const open = LOG.rows.filter(r => r.status === "pending");
+  v.innerHTML = (LOG.error ? `<div class="banner">${LOG.error}</div>` : "") +
+    `<div class="legend">Your open picks. Each one moves to Record once its game is final and the sheet grades it, usually within an hour of the next data run.</div>` +
+    (open.map(r => { const g = gameById(r.game_id);
+      return g ? card(g) : `<div class="game"><div class="mu">${r.matchup}</div><div class="pick"><div class="mine">Your pick: <b>${r.pick}</b> · ${r.market === "ml" ? "moneyline" : "spread"} · confidence ${r.confidence}/5 <span class="st pending">pending</span> <button class="link" data-del="${r.id}" data-gid="${r.game_id}">remove</button></div></div><div class="lc">Game ${r.game_date}, waiting for the final.</div></div>`; }).join("") ||
+     `<div class="empty">No open picks. Choose a side, bet type, and confidence on any game in Upcoming.</div>`) +
+    `<div class="lc" style="margin-top:12px">Pick log connected · ${LOG.rows.length} picks total · <button class="link" data-act="changeurl">change link</button></div>`;
+}
+function renderRecord(v){
+  if(!LOG.url){ v.innerHTML = setupBox(); return; }
+  const done = LOG.rows.filter(r => ["win", "loss", "push"].includes(r.status));
+  if(!done.length){ v.innerHTML = `<div class="empty">No graded picks yet. Results show here after your first picks go final.</div>`; return; }
+  const line = (label, rs) => { const w = rs.filter(r => r.status === "win").length, l = rs.filter(r => r.status === "loss").length, p = rs.length - w - l;
+    return `<span>${label}</span><span>${w}-${l}${p ? "-" + p : ""}</span><span>${w + l ? Math.round(w / (w + l) * 100) + "%" : "–"}</span>`; };
+  const group = (title, key, order) => { const keys = order || [...new Set(done.map(key))].sort();
+    return `<div class="game"><div class="mu">${title}</div><div class="rec"><span class="h">Group</span><span class="h">W-L-P</span><span class="h">Win %</span>${keys.map(k => { const rs = done.filter(r => key(r) === k); return rs.length ? line(k, rs) : ""; }).join("")}</div></div>`; };
+  const sp = done.filter(r => r.market !== "ml"), ml = done.filter(r => r.market === "ml");
+  v.innerHTML = `<div class="legend">Against the spread you need about 52.4% to profit at standard -110 prices. Small samples swing a lot, so give each group 30+ picks before trusting it.</div>
+    <div class="game"><div class="mu">Overall</div><div class="rec"><span class="h">Bet</span><span class="h">W-L-P</span><span class="h">Win %</span>${sp.length ? line("Spread", sp) : ""}${ml.length ? line("Moneyline", ml) : ""}${line("All picks", done)}</div></div>` +
+    group("By confidence", r => `${r.confidence}/5`, ["5/5", "4/5", "3/5", "2/5", "1/5"]) +
+    group("By side", r => r.side === "fav" ? "Favorite" : "Underdog", ["Favorite", "Underdog"]) +
+    group("By pillar tier", r => r.tier === "" ? "Too early" : `${r.tier}/4${Number(r.dog_edges) ? " with dog edge" : ""}`) +
+    group("By stage", r => r.stage === "scored" ? "5+ games" : r.stage === "early" ? "2 to 4 games" : "Too early") +
+    group("By flag", r => (String(r.flags).match(/Wounded prey|Favorite wounded|Dog wins the glass|Edge is mostly shooting|System flip|A\/TO under/) || ["No flag"])[0]) +
+    `<div class="game"><div class="mu">Latest results</div>${done.slice(-10).reverse().map(r => `<div class="mine" style="margin-top:5px"><span class="st ${r.status}">${r.status}</span> <b>${r.pick}</b> ${r.final ? "· " + r.final : ""} · ${r.confidence}/5</div>`).join("")}</div>`;
+}
 function card(g){
   const a = analyze(g);
   if(!g.fav){
@@ -349,6 +453,7 @@ function card(g){
    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
    ${injBlock([g.fav, g.dog])}
+   ${pickBlock(g)}
    <details><summary>Pillars and exchange check</summary>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
     <div class="xp"><label for="x${g.id}">Exchange price for ${nm(g.fav, g)} to win</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div>
    </details></div>`;
@@ -371,11 +476,13 @@ function render(){
         if(!gs.length) return "";
         const lab = new Date(d + "T12:00:00").toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
         return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") || `<div class="empty">No games in the next 3 days${q ? " for that team" : ""}.</div>`; };
+    $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.</div>`);
     $("uq").addEventListener("input", draw); draw(); return;
   }
   if(view === "bet"){
-    v.innerHTML = `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then by spread. Faded cards are early: fewer than 5 games for one team.</div>` +
-      (sortGames(games).map(card).join("") || `<div class="empty">No games left today.</div>`);
+    renderBet(v);
+  } else if(view === "record"){
+    renderRecord(v);
   } else if(view === "line"){
     const gs = all.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
     v.innerHTML = `<div class="legend">What each spread implies about the favorite's chance to win. Type an exchange price to see the gap. A -25 favorite should be about 99%.</div>` +
@@ -399,6 +506,23 @@ function render(){
       `<div class="empty">No movers yet. This fills in once teams reach 5 games and there's a week of daily snapshots to compare against.</div>`);
   }
 }
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-pk],[data-save],[data-del],[data-act],[data-goto]"); if(!t) return;
+  if(t.dataset.pk){ const gid = t.dataset.pk, s = SEL[gid] = SEL[gid] || {}; s[t.dataset.k] = t.dataset.k === "conf" ? Number(t.dataset.val) : t.dataset.val; redrawPick(gid); }
+  else if(t.dataset.save){ savePick(t.dataset.save); }
+  else if(t.dataset.del){ removePick(t.dataset.del, t.dataset.gid); }
+  else if(t.dataset.goto){ document.querySelector(`[data-v="${t.dataset.goto}"]`).click(); }
+  else if(t.dataset.act === "changeurl"){ LOG.url = ""; render(); }
+  else if(t.dataset.act === "seturl"){
+    const url = $("logurl").value.trim(), msg = $("logmsg");
+    if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)){ msg.textContent = "That doesn't look like an Apps Script web app link."; return; }
+    msg.textContent = "Checking…";
+    try{ const r = await (await fetch(url, {method: "POST", body: JSON.stringify({action: "ping"})})).json(); if(!r.ok) throw 0;
+      LOG.url = url; try{ localStorage.setItem("critterLogUrl", url); }catch(err){}
+      LOG.loaded = false; await loadLog(); render();
+    }catch(err){ msg.textContent = "Couldn't reach it. Check that the deployment's access is set to Anyone."; }
+  }
+});
 document.addEventListener("input", e => {
   const el = e.target; if(!el.dataset || !el.dataset.sw) return;
   const out = $("o" + el.id.slice(1)), x = parseFloat(el.value), sw = parseFloat(el.dataset.sw);
@@ -425,6 +549,7 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
     if(im && (im.boyds_age_days == null || im.boyds_age_days > 3)) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Boyd's injury list was last updated ${im.boyds_updated || "a while ago"}. SCACC is the live source for injuries right now.</div>`);
   }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
   render();
+  await loadLog(); render();
 })();
 </script>
 </body>

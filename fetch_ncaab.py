@@ -337,7 +337,8 @@ def load_slate(day):
         games.append(dict(id=ev["id"], day=str(day), start=ev.get("date"), state=comp["status"]["type"].get("state"),
                           neutral=bool(comp.get("neutralSite")), home=str(h["team"]["id"]), away=str(a["team"]["id"]),
                           home_name=h["team"].get("displayName", ""), away_name=a["team"].get("displayName", ""),
-                          details=odds.get("details", ""), home_spread=hs, ml_home=mlh, ml_away=mla))
+                          details=odds.get("details", ""), home_spread=hs, ml_home=mlh, ml_away=mla,
+                          home_score=num(h.get("score")), away_score=num(a.get("score"))))
     return games
 
 
@@ -626,7 +627,7 @@ def hexcolor(c):
 # ---------------------------------------------------------------- assemble
 def main():
     os.makedirs(os.path.join(OUT, "history"), exist_ok=True)
-    T, P, meta, d1 = None, None, None, None
+    T, P, meta, d1, t = None, None, None, None, None
     try:
         t, P = load_boxes()
         try:
@@ -652,6 +653,27 @@ def main():
         except Exception as e:
             status[f"slate {day}"] = f"failed: {e}"
     status["slate"] = f"{len(slate)} games over 3 days, {sum(g['home_spread'] is not None for g in slate)} with spreads"
+    # final scores for grading picks: last night from ESPN (fastest), plus everything in the season box scores
+    finals = {}
+    try:
+        for g in load_slate(TODAY - dt.timedelta(days=1)) + slate:
+            if g["state"] == "post" and g["home_score"] is not None and g["away_score"] is not None:
+                finals[g["id"]] = dict(date=g["day"], home=g["home"], away=g["away"], home_score=g["home_score"], away_score=g["away_score"])
+    except Exception as e:
+        status["results"] = f"ESPN finals failed: {e}"
+    try:
+        if t is None:
+            raise ValueError("no box scores this run")
+        tb = t[["game_id", "game_date", "team_id", "team_home_away", "team_score"]].copy()
+        tb["game_id"] = tb.game_id.astype(str); tb["team_id"] = tb.team_id.astype(str)
+        cutoff = str(TODAY - dt.timedelta(days=21))
+        for gid, x in tb[tb.game_date.astype(str) >= cutoff].groupby("game_id"):
+            h, a = x[x.team_home_away == "home"], x[x.team_home_away == "away"]
+            if len(h) and len(a) and gid not in finals:
+                finals[gid] = dict(date=str(h.game_date.iloc[0])[:10], home=h.team_id.iloc[0], away=a.team_id.iloc[0],
+                                   home_score=float(h.team_score.iloc[0]), away_score=float(a.team_score.iloc[0]))
+    except Exception as e:
+        status["results"] = f"box score finals failed: {e}"
     inj, boyds, scacc = {}, [], []
     try:
         boyds = load_injuries()
@@ -712,6 +734,7 @@ def main():
     json.dump(dict(date=str(TODAY), updated=stamp, games=out_games), open(os.path.join(OUT, "slate.json"), "w"))
     json.dump(dict(updated=stamp, teams=teams), open(os.path.join(OUT, "teams.json"), "w"), separators=(",", ":"))
     json.dump(dict(updated=stamp, movers=mv), open(os.path.join(OUT, "movers.json"), "w"))
+    json.dump(dict(updated=stamp, games=finals), open(os.path.join(OUT, "results.json"), "w"), separators=(",", ":"))
     snap = {k: dict(games=v["games"], record=v["record"], stage=v["stage"], species=v["species"], pillars=v["pillars"],
                     efg_z=v["efg_z"], margin=v["margin"]) for k, v in teams.items()}
     json.dump(snap, open(os.path.join(OUT, "history", f"{TODAY}.json"), "w"), separators=(",", ":"))
