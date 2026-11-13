@@ -220,18 +220,26 @@ TIERS = {**{c: "Power" for c in (2, 7, 8, 23, 4)}, **{c: "Upper mid" for c in (6
 APEX = [0.697, 0.678, 0.64, 0.629, 0.624, 0.669]   # finisher fingerprint from the 2024-25 and 2025-26 backtests
 
 
+TIER_MIN = 30   # a conference tier needs this many rated teams before it becomes the comparison pool
+
+
 def critters(T):
-    """Species from percentiles within each conference tier, so a team is judged against its own level."""
+    """Species for teams with 5+ games. Traits are ranked against every team with 2+ games, within the team's
+    conference tier once that tier has enough teams, so early-season percentiles aren't built on a handful of teams."""
     S = T[T.stage == "scored"].copy()
     if S.empty:
         return {}
-    S["tier"] = S.conf.map(lambda c: TIERS.get(c, "Low") if not pd.isna(c) else "Low")
+    tier_of = lambda c: TIERS.get(c, "Low") if not pd.isna(c) else "Low"
+    pool = T[T.games >= PROVISIONAL].copy()
+    pool["tier"] = pool.conf.map(tier_of)
+    S["tier"] = S.conf.map(tier_of)
     traits = {"fang": "Runs 12+", "flat": "Run pressure allowed", "paint": "Paint diff", "rim": "Rim share", "reb": "Reb diff",
               "hkm": "Disruption", "fb": "FB diff", "orbtv": "ORBTV per 100", "dreb": "DRB%", "orbp": "ORB%",
               "ato": "ato_raw", "efg": "eFG", "press": "Forced TO rate", "stl": "Steal rate", "net": "Net per 100"}
     out = {}
     for tier, grp in S.groupby("tier"):
-        base = grp if len(grp) >= 15 else S          # small tiers early in the season fall back to national ranks
+        tier_pool = pool[pool.tier == tier]
+        base = tier_pool if len(tier_pool) >= TIER_MIN else pool
         R = {k: base[c].rank(pct=True) if c in base and base[c].notna().any() else pd.Series(0.5, index=base.index) for k, c in traits.items()}
         prey_all = 1 - (R["reb"] + R["orbtv"] + R["fb"] + R["dreb"] + R["orbp"]) / 5
         cut = prey_all.quantile(0.8)
@@ -254,7 +262,8 @@ def critters(T):
                 sp = "Rabbit" if v["ato"] < 0.4 else "Goat"
             elif prey >= 0.6:
                 sp = "Hare" if v["ato"] < 0.4 else "Ram"
-            out[tid] = dict(sp=sp, tier=tier, core=int(core), prey=prey, **{k: v[k] for k in traits if k not in ("orbp",)})
+            out[tid] = dict(sp=sp, tier=tier, pool="tier" if base is tier_pool else "national", pool_n=int(len(base)), core=int(core), prey=prey,
+                            **{k: v[k] for k in traits if k not in ("orbp",)})
     return out
 
 
