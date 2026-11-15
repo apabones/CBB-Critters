@@ -267,6 +267,64 @@ def critters(T):
     return out
 
 
+APEX_TRAITS = [("runs", "Runs 12+"), ("paint", "Paint diff"), ("rim", "Rim share"), ("glass", "Reb diff"), ("disrupt", "Disruption"), ("dreb", "DRB%")]
+APEX_CUT = dict(zip([k for k, _ in APEX_TRAITS], APEX))   # same percentile lines as the species fingerprint
+
+
+def apex_profile(T, G):
+    """For every team with 2+ games: each apex trait's percentile (same pools as the species), how consistently it shows
+    up game to game (games vs bottom-25% opponents count half), its split vs top-half opponents, and an overall rank."""
+    tier_of = lambda c: TIERS.get(c, "Low") if not pd.isna(c) else "Low"
+    pool = T[T.games >= PROVISIONAL].copy()
+    if pool.empty:
+        return {}
+    pool["tier"] = pool.conf.map(tier_of)
+    net = T["Net per 100"].rank(pct=True) if "Net per 100" in T else pd.Series(0.5, index=T.index)
+    Gx = G[G.team.isin(pool.index)].copy()
+    Gx["opp_pct"] = Gx.opp.map(net).fillna(0.5)
+    Gx["w"] = Gx.opp_pct.map(lambda q: 0.5 if q < 0.25 else 1.0)
+    pct, cut = {}, {}
+    for tier, grp in pool.groupby("tier"):
+        base = grp if len(grp) >= TIER_MIN else pool
+        for k, col in APEX_TRAITS:
+            if col not in base or base[col].isna().all():
+                continue
+            pct.setdefault(k, {}).update(base[col].rank(pct=True).reindex(grp.index).to_dict())
+            cut.setdefault(k, {})[tier] = float(base[col].quantile(APEX_CUT[k]))
+    out = {}
+    for tid, r in pool.iterrows():
+        games = Gx[Gx.team == tid]
+        traits = {}
+        for k, col in APEX_TRAITS:
+            p = pct.get(k, {}).get(tid)
+            c = cut.get(k, {}).get(r.tier)
+            if p is None or pd.isna(p) or c is None or col not in games:
+                traits[k] = None
+                continue
+            line = max(c, 1) if k == "runs" else c                    # a game counts for runs if it had a 12+ run
+            v = games[col]
+            ok = v.notna()
+            hit = (v >= line) & ok
+            n, w_n = int(ok.sum()), float(games.w[ok].sum())
+            w_hit = float(games.w[hit].sum())
+            top = ok & (games.opp_pct >= 0.5)
+            share = w_hit / w_n if w_n else 0.0
+            solid = share * min(1.0, n / 5)                          # 1 of 2 games stays faint, 5 of 6 is solid
+            traits[k] = dict(pct=round(float(p), 3), apex=bool(p >= APEX_CUT[k]), hit=int(hit.sum()), n=n,
+                             top_hit=int((hit & top).sum()), top_n=int(top.sum()), solid=round(solid, 3))
+        pil = [T[pp].rank(pct=True).get(tid) for pp in PILLARS if pp in T]
+        parts = [x for x in pil if x is not None and not pd.isna(x)] + \
+                [t["pct"] * (0.5 + 0.5 * t["solid"]) for t in traits.values() if t]   # consistency weighs every trait
+        out[tid] = dict(traits=traits, core=sum(1 for t in traits.values() if t and t["apex"]),
+                        score=round(sum(parts) / len(parts), 4) if parts else None)
+    order = sorted((t for t in out if out[t]["score"] is not None), key=lambda t: -out[t]["score"])
+    for i, t in enumerate(order):
+        out[t]["rank"] = i + 1
+    for t in out:
+        out[t]["of"] = len(order)
+    return out
+
+
 def movers(teams, today):
     """Compare each team to its snapshot from about a week ago, plus last-5 pillar moves."""
     hist = sorted(f[:-5] for f in os.listdir(os.path.join(OUT, "history")) if f.endswith(".json"))
@@ -689,12 +747,16 @@ def main():
         except Exception as e:
             status["injuries"] = f"failed: {e}"
 
-    teams, crit = {}, {}
+    teams, crit, apx = {}, {}, {}
     if T is not None:
         try:
             crit = critters(T)
         except Exception as e:
             status["critters"] = f"failed: {e}"
+        try:
+            apx = apex_profile(T, G)
+        except Exception as e:
+            status["apex"] = f"failed: {e}"
         f = lambda x, d=1: None if x is None or pd.isna(x) else round(float(x), d)
         for tid, r in T.iterrows():
             c = crit.get(tid, {})
@@ -704,7 +766,7 @@ def main():
                               last5=r.get("last5"), last5_wins=None if pd.isna(r.get("last5_wins")) else int(r["last5_wins"]),
                               efg_move=f(r.get("eFG move"), 2), fin=f(r.get("fin_rate"), 2), fin_n=None if pd.isna(r.get("fin_chances", float("nan"))) else int(r["fin_chances"]),
                               pillars={p: f(r[p], 2) for p in PILLARS}, moves={p: f(r[p + " move"], 2) for p in PILLARS},
-                              species=c.get("sp", "Blob"), critter=c or None)
+                              species=c.get("sp", "Blob"), critter=c or None, apex=apx.get(tid))
     for tid, info in D1_INFO.items():
         if tid not in teams:
             teams[tid] = dict(name=info["name"], short=info["short"], color=hexcolor(info["color"]), conf=info["conf"], games=0, record="0-0",

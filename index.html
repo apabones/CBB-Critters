@@ -81,6 +81,43 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .sp{font:600 11px Barlow,sans-serif;color:var(--muted);text-align:center;margin-top:1px}
 .day{font:700 16px "Barlow Condensed",sans-serif;margin:14px 0 6px;color:var(--accent)}
 .prev{font:600 11px Barlow,sans-serif;color:var(--muted);border:1px dashed var(--muted);border-radius:999px;padding:1px 6px;margin-left:6px}
+.cb{display:flex;flex-direction:column;align-items:center;width:64px;flex:none}
+.dots{display:flex;gap:2px;margin-top:3px}
+.dots i{width:8px;height:8px;border-radius:50%;border:1.5px solid;display:block}
+.mini{font:600 10.5px Barlow,sans-serif;color:var(--muted);margin-top:2px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.lowato{color:var(--bad);font-weight:700}
+.rk{font:700 11px "Barlow Condensed",sans-serif;padding:0 5px;border-radius:999px;background:var(--ink);color:var(--surface)}
+.tap{cursor:pointer}
+.toggle{display:flex;gap:6px;margin-bottom:8px}
+.toggle button{font:600 13px Barlow,sans-serif;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.more{display:block;width:100%;margin:6px 0;font:600 14px Barlow,sans-serif;padding:9px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+/* full-screen swipe cards */
+.ov{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column}
+.ov[hidden]{display:none}
+.ovbar{display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top,0px) + 8px) 12px 8px;border-bottom:1px solid var(--line);background:var(--surface)}
+.ovbar button{font:700 18px Barlow,sans-serif;border:0;background:none;color:var(--ink);padding:4px 8px}
+.ovtitle{font:700 16px "Barlow Condensed",sans-serif;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pager{display:flex;gap:5px}
+.pager i{width:8px;height:8px;border-radius:50%;background:var(--line);display:block}
+.pager i.on{background:var(--accent)}
+.ovtrack{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior:contain}
+.ovtrack::-webkit-scrollbar{display:none}
+.panel{flex:0 0 100%;scroll-snap-align:start;overflow-y:auto;padding:12px 12px calc(env(safe-area-inset-bottom,0px) + 30px)}
+.panel>div{max-width:560px;margin:0 auto}
+.tc-head{display:flex;gap:12px;align-items:center}
+.tc-head .big svg{width:104px;height:114px;display:block;background:#f6efe2;border-radius:14px}
+.tc-name{font:700 22px/1.1 "Barlow Condensed",sans-serif}
+.rose{display:block;margin:6px auto 0;max-width:340px;width:100%}
+.roses{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center}
+.roses .rose{max-width:180px}
+.tl{display:grid;grid-template-columns:12px 1fr auto auto;gap:4px 8px;align-items:center;font-size:13px;margin-top:8px;font-variant-numeric:tabular-nums}
+.tl .sw{width:11px;height:11px;border-radius:3px}
+.tl .h{color:var(--muted);font-size:11.5px}
+.nums{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.nums div{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:11.5px;color:var(--muted)}
+.nums b{display:block;font:700 17px "Barlow Condensed",sans-serif;color:var(--ink)}
+.sec{font:700 14px "Barlow Condensed",sans-serif;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
 </style>
 </head>
 <body>
@@ -90,7 +127,6 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 <div class="tabs" role="group" aria-label="View">
  <button data-v="up" aria-pressed="true">Upcoming</button>
  <button data-v="bet" aria-pressed="false">Bet Mode</button>
- <button data-v="line" aria-pressed="false">Lines</button>
  <button data-v="teams" aria-pressed="false">Teams</button>
  <button data-v="movers" aria-pressed="false">Movers</button>
  <button data-v="record" aria-pressed="false">Record</button>
@@ -98,6 +134,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 <div id="view"></div>
 <div class="status" id="status"></div>
 </main>
+<div class="ov" id="ov" hidden role="dialog" aria-modal="true" aria-labelledby="ovt">
+ <div class="ovbar"><button id="ovx" aria-label="Close">✕</button><span class="ovtitle" id="ovt"></span><span class="pager" id="ovp"></span></div>
+ <div class="ovtrack" id="ovtrack"></div>
+</div>
 <script>
 /* ---------- critter drawings (shared with the Serengeti page) ---------- */
 let preyCut = 1;
@@ -280,7 +320,7 @@ species = t => t.sp;   /* species now come from the daily data job */
 
 const $ = id => document.getElementById(id);
 const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
-let S = null, TM = {}, L = null, MV = null, view = "up";
+let S = null, TM = {}, L = null, MV = null, view = "up", teamOrder = "best";
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
 const short = id => (TM[id] && TM[id].short) || "";
 const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.away_name);
@@ -293,6 +333,101 @@ function icon(id, flip){
   const c = t.critter;
   const svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
   return `<div><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div></div>`;
+}
+/* ---------- apex traits: dots, rose chart, team cards ---------- */
+const TRAITS = [["runs", "Runs 12+", "#dc2626"], ["paint", "Paint edge", "#ea580c"], ["rim", "Rim attacks", "#ca8a04"],
+                ["glass", "Glass", "#2563eb"], ["disrupt", "Disruption", "#7c3aed"], ["dreb", "D-rebounding", "#0d9488"]];
+const APEX_LINE = {runs: 0.697, paint: 0.678, rim: 0.64, glass: 0.629, disrupt: 0.624, dreb: 0.669};
+const ord = n => n + (["th","st","nd","rd"][(n % 100 > 10 && n % 100 < 14) ? 0 : (n % 10 < 4 ? n % 10 : 0)] || "th");
+const atoTxt = v => v == null ? "–" : `<span class="${v < 1 ? "lowato" : ""}">${v.toFixed(2)}</span>`;
+function dots(t){
+  const a = t && t.apex;
+  return `<span class="dots" title="Apex traits: Runs, Paint, Rim, Glass, Disruption, D-reb. Filled = apex level.">${TRAITS.map(([k, , c]) => {
+    const x = a && a.traits[k]; return `<i style="border-color:${c};background:${x && x.apex ? c : "transparent"};opacity:${x ? 1 : .35}"></i>`; }).join("")}</span>`;
+}
+function critterBlock(id, flip){
+  const t = TM[id];
+  if(!t) return `<div class="cb"><div class="ic">${blobSvg("#9a9387")}</div></div>`;
+  const c = t.critter, svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
+  const rk = t.apex && t.apex.rank ? `<span class="rk">#${t.apex.rank}</span> ` : "";
+  return `<div class="cb"><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div>${dots(t)}<div class="mini">${rk}A/TO ${atoTxt(t.ato)}</div></div>`;
+}
+function rose(t, big){
+  const a = t && t.apex, R = 100, r0 = 14, W = big ? 172 : 104;
+  let s = `<circle r="${R}" fill="none" stroke="var(--line)" stroke-width="1"/>`;
+  TRAITS.forEach(([k, label, col], i) => {
+    const mid = -90 + i * 60, a0 = (mid - 27) * Math.PI / 180, a1 = (mid + 27) * Math.PI / 180, am = mid * Math.PI / 180;
+    const wedge = r => `M${(r0 * Math.cos(a0)).toFixed(1)} ${(r0 * Math.sin(a0)).toFixed(1)} L${(r * Math.cos(a0)).toFixed(1)} ${(r * Math.sin(a0)).toFixed(1)} A${r} ${r} 0 0 1 ${(r * Math.cos(a1)).toFixed(1)} ${(r * Math.sin(a1)).toFixed(1)} L${(r0 * Math.cos(a1)).toFixed(1)} ${(r0 * Math.sin(a1)).toFixed(1)} A${r0} ${r0} 0 0 0 ${(r0 * Math.cos(a0)).toFixed(1)} ${(r0 * Math.sin(a0)).toFixed(1)} Z`;
+    s += `<path d="${wedge(R)}" fill="${col}" fill-opacity=".05" stroke="${col}" stroke-opacity=".25" stroke-width="1"/>`;
+    const x = a && a.traits[k];
+    if(x){
+      const r = r0 + x.pct * (R - r0);
+      s += `<path d="${wedge(r)}" fill="${col}" fill-opacity="${(0.12 + 0.88 * x.solid).toFixed(2)}" stroke="${col}" stroke-width="2"/>`;
+      if(big){ const inside = r > 52, tr = inside ? r - 16 : r + 13;   // long petals carry the count inside, short ones just outside
+        s += `<text x="${(tr * Math.cos(am)).toFixed(1)}" y="${(tr * Math.sin(am) + 4).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${inside ? "#fff" : "var(--ink)"}" ${inside ? 'paint-order="stroke" stroke="rgba(0,0,0,.5)" stroke-width="3"' : ""}>${x.hit}/${x.n}</text>`; }
+    }
+    const rc = r0 + APEX_LINE[k] * (R - r0);   // the apex line, dashed
+    s += `<path d="M${(rc * Math.cos(a0)).toFixed(1)} ${(rc * Math.sin(a0)).toFixed(1)} A${rc} ${rc} 0 0 1 ${(rc * Math.cos(a1)).toFixed(1)} ${(rc * Math.sin(a1)).toFixed(1)}" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="4 3" opacity=".7"/>`;
+    if(big){ const lr = R + 14, cx = lr * Math.cos(am), anchor = Math.abs(cx) < 20 ? "middle" : cx > 0 ? "start" : "end";
+      s += `<text x="${cx.toFixed(1)}" y="${(lr * Math.sin(am) + (Math.sin(am) < -0.9 ? -2 : Math.sin(am) > 0.9 ? 12 : 4)).toFixed(1)}" text-anchor="${anchor}" font-size="12" font-weight="600" fill="var(--muted)">${label === "D-rebounding" ? "D-reb" : label}</text>`; }
+  });
+  return `<svg class="rose" viewBox="${-W} ${-W} ${W * 2} ${W * 2}" role="img" aria-label="Apex trait chart for ${t ? t.name : "team"}">${s}</svg>`;
+}
+function traitTable(t){
+  const a = t && t.apex; if(!a) return `<div class="lc">Apex traits show once the team has 2 games against D1 opponents.</div>`;
+  return `<div class="tl"><span></span><span class="h">Trait</span><span class="h">Percentile</span><span class="h">Games</span>${TRAITS.map(([k, label, col]) => { const x = a.traits[k];
+    if(!x) return `<span class="sw" style="background:${col};opacity:.3"></span><span>${label}</span><span>–</span><span>–</span>`;
+    return `<span class="sw" style="background:${col}"></span><span>${x.apex ? "<b>" + label + " ✓</b>" : label}</span><span>${ord(Math.round(x.pct * 100))}</span><span>${x.hit} of ${x.n}${x.top_n ? ` · ${x.top_hit}/${x.top_n} vs top half` : ""}</span>`; }).join("")}</div>
+    <div class="lc">Petal length = percentile. Shading = how many games it showed up (games vs bottom-25% teams count half). Dashed line = apex level.</div>`;
+}
+function pillarRows(t){
+  return PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span class="gap">${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("");
+}
+function injList(t){
+  return (t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""}</div>`).join("") || `<div class="lc">No injuries listed.</div>`;
+}
+function teamCard(id, flip){
+  const t = TM[id]; if(!t) return `<div class="empty">No data for this team yet.</div>`;
+  const c = t.critter, svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color), a = t.apex;
+  const fin = t.fin_n ? `${Math.round(t.fin * 100)}% of ${t.fin_n}` : "–";
+  return `<div class="tc-head"><div class="big">${svg}</div><div><div class="tc-name">${t.name}</div>
+      <div class="lc">${a && a.rank ? `<span class="rk">#${a.rank} of ${a.of}</span> · ` : ""}${c ? c.sp : "Blob"} · ${t.record}${a ? ` · ${a.core}/6 apex` : ""}</div>
+      <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}</div></div>
+    ${rose(t, true)}${traitTable(t)}
+    <div class="nums"><div>A/TO<b>${atoTxt(t.ato)}</b></div><div>ORBTV / 100<b>${t.orbtv ?? "–"}</b></div><div>Avg margin<b>${t.margin ?? "–"}</b></div>
+      <div>Last 5<b>${t.last5 || "–"}</b></div><div>Finisher<b style="font-size:14px">${fin}</b></div><div>Shooting (eFG z)<b>${t.efg_z ?? "–"}</b></div></div>
+    <div class="sec">Pillars (vs D1 average)</div>${t.stage === "too early" ? `<div class="lc">Pillars show after 2 games.</div>` : pillarRows(t)}
+    <div class="sec">Injuries</div>${injList(t)}`;
+}
+function h2hCard(g){
+  const a = analyze(g), F = TM[g.fav], D = TM[g.dog], mine = pickOf(g.id);
+  return `<div class="tc-name">${nm(g.fav, g)} -${g.line} <span style="color:var(--muted);font-size:17px">${venue(g)}</span></div>
+    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""} · ${a.tier == null ? "too early" : `${a.tier}/4 pillar edges${a.preyEdges ? `, dog ${a.preyEdges}` : ""}`}</div>
+    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, x]) => `<span class="f ${k}">${x}</span>`).join("")}</div>` : ""}
+    <div class="roses" style="margin-top:8px"><div>${rose(F)}<div class="lc"><b style="color:var(--fav)">${nm(g.fav, g)}</b>${F && F.apex ? ` · #${F.apex.rank}` : ""}</div></div>
+      <div>${rose(D)}<div class="lc"><b style="color:var(--dog)">${nm(g.dog, g)}</b>${D && D.apex ? ` · #${D.apex.rank}` : ""}</div></div></div>
+    <div class="sec">Pillar gaps</div>${a.level === "too early" ? `<div class="lc">Pillars show once both teams have 2 games.</div>` : bars(g)}
+    <div class="sec">Injuries</div>${injBlock([g.fav, g.dog])}
+    ${mine ? `<div class="sec">Your pick</div><div class="mine"><b>${mine.pick}</b> · confidence ${mine.confidence}/5 <span class="st ${mine.status}">${mine.status}</span></div>` : `<div class="lc" style="margin-top:12px">Make a pick from the game's card in Upcoming.</div>`}`;
+}
+/* full-screen swipe cards */
+function openPanels(title, panels){
+  $("ovt").textContent = title;
+  $("ovtrack").innerHTML = panels.map(p => `<section class="panel"><div>${p}</div></section>`).join("");
+  $("ovp").innerHTML = panels.length > 1 ? panels.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("") : "";
+  $("ov").hidden = false; document.body.style.overflow = "hidden"; $("ovtrack").scrollLeft = 0;
+  try{ history.pushState({ov: 1}, ""); }catch(e){}
+  $("ovx").focus();
+}
+function closePanels(fromPop){
+  if($("ov").hidden) return;
+  $("ov").hidden = true; document.body.style.overflow = "";
+  if(!fromPop){ try{ history.back(); }catch(e){} }
+}
+function openGame(gid){
+  const g = gameById(gid); if(!g) return;
+  if(!g.fav) return openPanels(`${g.away_name} at ${g.home_name}`, [teamCard(g.away, false), teamCard(g.home, true)]);
+  openPanels(`${nm(g.fav, g)} -${g.line} ${venue(g).replace(/<span class="where">.*?<\/span>/, "").trim()}`, [teamCard(g.fav, false), teamCard(g.dog, true), h2hCard(g)]);
 }
 /* "at" when the favorite travels, "hosts" when it's home, "vs ... (neutral)" otherwise */
 const venue = g => g.neutral ? `vs ${nm(g.dog, g)} <span class="where">neutral</span>` : g.fav === g.home ? `hosts ${nm(g.dog, g)} <span class="where">home</span>` : `at ${nm(g.dog, g)} <span class="where">road</span>`;
@@ -332,7 +467,6 @@ function analyze(g){
   [g.fav, g.dog].forEach(t => ((TM[t] || {}).injuries || []).filter(i => i.top2 && i.status === "Questionable" && !i.long).forEach(i => r.flags.push(["info", `${short(t)}: ${i.player} (${i.ppg} ppg) questionable`])));
   if(r.level === "scored"){
     if(D.pillars.Glass - F.pillars.Glass >= 1) r.flags.push(["warn", "Dog wins the glass"]);
-    if(F.ato < 1) r.flags.push(["warn", `${short(g.fav)} A/TO under 1.0`]);
     if(F.efg_z != null && D.efg_z != null && F.efg_z - D.efg_z >= 1 && r.tier <= 1) r.flags.push(["warn", "Edge is mostly shooting"]);
     const fs = PIL.reduce((s, p) => s + (F.pillars[p] || 0), 0), ds = PIL.reduce((s, p) => s + (D.pillars[p] || 0), 0);
     if(ds - fs >= 1.5) r.flags.push(["info", `System flip: ${short(g.dog)} looks like the predator`]);
@@ -443,13 +577,13 @@ function card(g){
   const a = analyze(g);
   if(!g.fav){
     const a0 = analyze(g), pv = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
-    return `<div class="game faded"><div class="duo">${icon(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${icon(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
+    return `<div class="game faded"><div class="duo tap" data-open="${g.id}">${critterBlock(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${critterBlock(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
   }
   const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.preyEdges ? ` · dog ${a.preyEdges}` : ""}${a.level === "early" ? " early" : ""}</span>`;
   const preview = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
   return `<div class="game${a.level === "scored" ? "" : " faded"}">
-   <div class="top"><div class="duo">${icon(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">${venue(g)}</span>${preview}</div>${icon(g.dog, true)}</div>${tier}</div>
+   <div class="top tap" data-open="${g.id}"><div class="duo">${critterBlock(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">${venue(g)}</span>${preview}</div>${critterBlock(g.dog, true)}</div>${tier}</div>
    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
    ${injBlock([g.fav, g.dog])}
@@ -476,27 +610,30 @@ function render(){
         if(!gs.length) return "";
         const lab = new Date(d + "T12:00:00").toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
         return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") || `<div class="empty">No games in the next 3 days${q ? " for that team" : ""}.</div>`; };
-    $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.</div>`);
+    $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.<br>
+      Apex dots, in order: ${TRAITS.map(([, l, c]) => `<b style="color:${c}">${l}</b>`).join(" · ")}. Filled = apex level. <b>Tap a matchup</b> for full team cards, then swipe.</div>`);
     $("uq").addEventListener("input", draw); draw(); return;
   }
   if(view === "bet"){
     renderBet(v);
   } else if(view === "record"){
     renderRecord(v);
-  } else if(view === "line"){
-    const gs = all.filter(g => g.fav).sort((a, b) => Math.abs((b.ml_win ?? b.spread_win) - b.spread_win) - Math.abs((a.ml_win ?? a.spread_win) - a.spread_win) || a.line - b.line);
-    v.innerHTML = `<div class="legend">What each spread implies about the favorite's chance to win. Type an exchange price to see the gap. A -25 favorite should be about 99%.</div>` +
-      gs.map(g => `<div class="game"><div class="top"><div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span> <span class="dog">${venue(g)}</span></div></div>
-        <div class="lc">Spread implies <b>${pct(g.spread_win)}</b>${g.ml_win != null ? ` · book moneyline <b>${pct(g.ml_win)}</b>` : ""}</div>
-        <div class="xp"><label for="x${g.id}">Exchange price</label><input id="x${g.id}" inputmode="decimal" placeholder="e.g. 90" data-sw="${g.spread_win}"><span id="o${g.id}"></span></div></div>`).join("");
   } else if(view === "teams"){
-    v.innerHTML = `<input class="search" id="q" placeholder="Search a team" autocomplete="off"><div id="tl"></div>`;
+    v.innerHTML = `<input class="search" id="q" placeholder="Search a team" autocomplete="off">
+      <div class="toggle" role="group" aria-label="Sort"><button data-ord="best" aria-pressed="${teamOrder === "best"}">Best first</button><button data-ord="worst" aria-pressed="${teamOrder === "worst"}">Worst first</button></div>
+      <div class="legend">Rank blends all four pillars and all six apex traits, with each trait weighted by how consistently it shows up. Teams need 2 games to be ranked.</div><div id="tl"></div>`;
+    let limit = 20;
     const draw = () => { const q = $("q").value.trim().toLowerCase();
-      const list = Object.values(TM).filter(t => !q || t.name.toLowerCase().includes(q)).sort((a, b) => b.games - a.games || a.name.localeCompare(b.name)).slice(0, 40);
-      $("tl").innerHTML = list.map(t => `<div class="game${t.stage === "scored" ? "" : " faded"}"><div class="top"><div class="duo">${icon(Object.keys(TM).find(k => TM[k] === t), false)}<div class="mu">${t.name}</div></div><span class="tier${t.stage === "scored" ? "" : " early"}">${t.record} · ${t.stage}</span></div>
-        <div class="lc">${t.critter ? `${t.critter.sp}, ${t.critter.core}/6 apex traits` : "Blob until 5 games"}${t.fin_n ? ` · finisher ${t.fin_n ? Math.round(t.fin * 100) + "% of " + t.fin_n + " big leads" : ""}` : ""} · last 5: ${t.last5 || "–"} · avg margin ${t.margin} · A/TO ${t.ato} · ORBTV/100 ${t.orbtv}${t.big_win ? " · has a 15+ win" : ""}</div>
-        ${t.stage !== "too early" ? PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span>${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("") : ""}
-        ${(t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""} · ${i.source === "S" ? "SCACC" : i.source === "B" ? "Boyd's" : "both sources"}</div>`).join("")}</div>`).join(""); };
+      const ids = Object.keys(TM).filter(k => !q || TM[k].name.toLowerCase().includes(q));
+      const rk = k => (TM[k].apex && TM[k].apex.rank) || null;
+      const ranked = ids.filter(rk).sort((a, b) => teamOrder === "best" ? rk(a) - rk(b) : rk(b) - rk(a));
+      const rest = ids.filter(k => !rk(k)).sort((a, b) => TM[b].games - TM[a].games || TM[a].name.localeCompare(TM[b].name));
+      const list = ranked.concat(rest);
+      $("tl").innerHTML = list.slice(0, limit).map(k => `<div class="game${TM[k].stage === "scored" ? "" : " faded"}">${teamCard(k, false)}</div>`).join("") +
+        (list.length > limit ? `<button class="more" id="tmore">Show more (${list.length - limit} left)</button>` : "") || `<div class="empty">No teams match.</div>`;
+      const m = $("tmore"); if(m) m.onclick = () => { limit += 20; draw(); };
+    };
+    v.querySelectorAll("[data-ord]").forEach(b => b.onclick = () => { teamOrder = b.dataset.ord; render(); });
     $("q").addEventListener("input", draw); draw();
   } else {
     const M = (MV && MV.movers) || [];
@@ -506,6 +643,15 @@ function render(){
       `<div class="empty">No movers yet. This fills in once teams reach 5 games and there's a week of daily snapshots to compare against.</div>`);
   }
 }
+document.addEventListener("click", e => {
+  if(e.target.closest("button,input,a,summary,details")) return;
+  const o = e.target.closest("[data-open]"); if(o) openGame(o.dataset.open);
+});
+$("ovx").onclick = () => closePanels(false);
+window.addEventListener("popstate", () => closePanels(true));
+document.addEventListener("keydown", e => { if(e.key === "Escape") closePanels(false); });
+$("ovtrack").addEventListener("scroll", () => { const tr = $("ovtrack"), i = Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth));
+  $("ovp").querySelectorAll("i").forEach((d, j) => d.classList.toggle("on", j === i)); }, {passive: true});
 document.addEventListener("click", async e => {
   const t = e.target.closest("[data-pk],[data-save],[data-del],[data-act],[data-goto]"); if(!t) return;
   if(t.dataset.pk){ const gid = t.dataset.pk, s = SEL[gid] = SEL[gid] || {}; s[t.dataset.k] = t.dataset.k === "conf" ? Number(t.dataset.val) : t.dataset.val; redrawPick(gid); }
