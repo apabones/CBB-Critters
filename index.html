@@ -384,7 +384,7 @@ function pillarRows(t){
   return PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span class="gap">${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("");
 }
 function injList(t){
-  return (t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""}</div>`).join("") || `<div class="lc">No injuries listed.</div>`;
+  return (t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.carried ? ", from the last run (source page failed)" : i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""}</div>`).join("") || `<div class="lc">No injuries listed.</div>`;
 }
 function teamCard(id, flip){
   const t = TM[id]; if(!t) return `<div class="empty">No data for this team yet.</div>`;
@@ -440,8 +440,8 @@ function injBlock(ids){
     const chips = list.slice(0, 5).map(i => {
       const cls = i.status === "Out" ? "out" : i.status === "Doubtful" ? "dbt" : "q";
       const bits = [i.ppg != null ? `${i.ppg} ppg` : "", i.rank && i.rank <= 5 ? `#${i.rank} scorer` : ""].filter(Boolean).join(", ");
-      const tag = i.fresh && cls !== "q" ? " · new" : i.long ? " · long-term" : i.missed ? " · already missing" : "";
-      return `<span class="i ${cls}${i.stale || i.long || i.missed ? " old" : ""}" title="${i.injury || ""}${i.source ? " · " + i.source : ""}">${i.player}${bits ? ` (${bits})` : ""} ${i.status.toLowerCase()}${tag}</span>`;
+      const tag = i.carried ? " · from last run" : i.fresh && cls !== "q" ? " · new" : i.long ? " · long-term" : i.missed ? " · already missing" : "";
+      return `<span class="i ${cls}${i.stale || i.long || i.missed || i.carried ? " old" : ""}" title="${i.injury || ""}${i.source ? " · " + i.source : ""}">${i.player}${bits ? ` (${bits})` : ""} ${i.status.toLowerCase()}${tag}</span>`;
     }).join("");
     const more = list.length > 5 ? `<span class="none">+${list.length - 5} more on the Teams tab</span>` : "";
     return `<div class="inj"><span class="tm">${(TM[t] || {}).short || ""}</span>${chips || `<span class="none">none listed</span>`}${more}</div>`;
@@ -577,7 +577,7 @@ function card(g){
   const a = analyze(g);
   if(!g.fav){
     const a0 = analyze(g), pv = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
-    return `<div class="game faded"><div class="duo tap" data-open="${g.id}">${critterBlock(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${critterBlock(g.home, true)}</div><div class="lc">No line posted yet</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
+    return `<div class="game faded"><div class="duo tap" data-open="${g.id}">${critterBlock(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${critterBlock(g.home, true)}</div><div class="lc">${g.line_dropped ? "Spread hidden: ESPN's number and its listed favorite disagreed" : "No line posted yet"}</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
   }
   const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.preyEdges ? ` · dog ${a.preyEdges}` : ""}${a.level === "early" ? " early" : ""}</span>`;
@@ -621,7 +621,7 @@ function render(){
   } else if(view === "teams"){
     v.innerHTML = `<input class="search" id="q" placeholder="Search a team" autocomplete="off">
       <div class="toggle" role="group" aria-label="Sort"><button data-ord="best" aria-pressed="${teamOrder === "best"}">Best first</button><button data-ord="worst" aria-pressed="${teamOrder === "worst"}">Worst first</button></div>
-      <div class="legend">Rank blends all four pillars and all six apex traits, with each trait weighted by how consistently it shows up. Teams need 2 games to be ranked.</div><div id="tl"></div>`;
+      <div class="legend">Rank blends all four pillars and all six apex traits, each adjusted for schedule and weighted by how consistently it shows up. Teams need 2 games to be ranked.</div><div id="tl"></div>`;
     let limit = 20;
     const draw = () => { const q = $("q").value.trim().toLowerCase();
       const ids = Object.keys(TM).filter(k => !q || TM[k].name.toLowerCase().includes(q));
@@ -691,7 +691,12 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
     $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
     $("status").innerHTML = "Data: " + Object.entries(L.status || {}).filter(([k]) => k !== "injury_meta").map(([k, v]) => `${k} ${v}`).join(" · ") + `<br>Updated ${new Date(L.updated).toLocaleString()}`;
+    const zf = L.zero_flags || [];
+    if(zf.length) $("status").insertAdjacentHTML("beforeend", `<details><summary>Box score numbers to check (${zf.length})</summary>
+      <div class="lc">Blanked = left out of the ratings as implausible. Kept = still counted, but unusual enough to look at. Tap a game for ESPN's box score.</div>
+      ${zf.map(z => `<div class="lc"><a href="https://www.espn.com/mens-college-basketball/boxscore/_/gameId/${z.game}" target="_blank" rel="noopener">${z.date} ${z.team} vs ${z.opp}</a>: ${z.stat.replace(/_/g, " ")} ${z.value ?? "blank"} (${z.why}) · <b>${z.blanked ? "blanked" : "kept"}</b></div>`).join("")}</details>`);
     const im = (L.status || {}).injury_meta;
+    if(im && im.box_stale) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Box scores are running behind, so "played last game" may be wrong. New-absence flags (Wounded prey, Favorite wounded) are off until they catch up.</div>`);
     if(im && (im.boyds_age_days == null || im.boyds_age_days > 3)) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Boyd's injury list was last updated ${im.boyds_updated || "a while ago"}. SCACC is the live source for injuries right now.</div>`);
   }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
   render();
