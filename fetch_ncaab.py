@@ -5,21 +5,19 @@ NCAA basketball predator/prey screener: daily data job (Stage 2).
 Pulls:
   1. This season's team and player box scores (sportsdataverse, updated nightly from ESPN)
   2. Today's slate, spreads and moneylines (ESPN scoreboard)
-  3. The Boyd's Bets NCAA injury report
+  3. The SCACC Hoops injury reports (all conference pages)
 Builds data/slate.json, data/teams.json, data/history/<date>.json and data/latest.json.
 
 Each source is independent: if one fails, the others still save, and the page shows what's missing.
 Run on GitHub (daily workflow) or locally:  python fetch_ncaab.py
 """
-import csv, datetime as dt, html, io, json, math, os, re, sys, time, unicodedata, urllib.parse, urllib.request
-from html.parser import HTMLParser
+import datetime as dt, html, io, json, math, os, re, sys, time, unicodedata, urllib.parse, urllib.request
 
 import numpy as np
 import pandas as pd
 
 SDV = "https://github.com/sportsdataverse/sportsdataverse-data/releases/download"
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball"
-BOYDS = "https://www.boydsbets.com/ncaa-basketball-injuries/"
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
 OUT = "data"
 MARGIN_SD = 11.0          # typical miss of a college spread, in points
@@ -572,22 +570,6 @@ def keep_pregame_lines(slate, path):
 
 
 # ---------------------------------------------------------------- 3. injuries
-class Table(HTMLParser):
-    def __init__(self):
-        super().__init__(); self.rows, self.row, self.cell, self.inc = [], None, "", False
-    def handle_starttag(self, tag, attrs):
-        if tag == "tr": self.row = []
-        elif tag in ("td", "th") and self.row is not None: self.inc, self.cell = True, ""
-    def handle_endtag(self, tag):
-        if tag in ("td", "th") and self.row is not None: self.row.append(" ".join(self.cell.split())); self.inc = False
-        elif tag == "tr" and self.row is not None:
-            if self.row: self.rows.append(self.row)
-            self.row = None
-    def handle_data(self, d):
-        if self.inc: self.cell += d
-
-
-BOYDS_UPDATED = {"text": None, "date": None}
 SCACC = "https://www.scacchoops.com/"
 ALIASES = {"appalachian state": "app state",
            "connecticut": "uconn",
@@ -662,38 +644,6 @@ ALIASES = {"appalachian state": "app state",
            "ut-martin": "ut martin",
            "uta": "ut arlington",
            "southern california": "usc"}   # injury-site name -> ESPN short name, each checked against ESPN's team list
-
-
-def load_injuries():
-    """Boyd's Bets table. Also records when the page says it was last updated."""
-    page = get(BOYDS, raw=True).decode("utf-8", "ignore")
-    m = re.search(r"Injuries Last Updated on\s*(?:<[^>]+>\s*)*([A-Za-z]+,\s*[A-Za-z]+ \d{1,2},\s*\d{4})", page)
-    if m:
-        BOYDS_UPDATED["text"] = m.group(1)
-        try:
-            BOYDS_UPDATED["date"] = dt.datetime.strptime(re.sub(r"^[A-Za-z]+,\s*", "", m.group(1)), "%B %d, %Y").date()
-        except Exception:
-            pass
-    tp = Table(); tp.feed(page)
-    out, team = [], ""
-    for r in tp.rows:
-        low = [c.lower() for c in r]
-        if "player" in low and "status" in low:
-            continue                                       # header row
-        if len(r) == 1:
-            team = r[0]; continue                          # team section header
-        if len(r) >= 6:
-            team, player, pos, st, date, note = r[:6]
-        elif len(r) == 5:
-            player, pos, st, date, note = r
-        else:
-            continue
-        stt = re.split(r"\s*–\s*|\s+-\s*|\s*-\s+", st, maxsplit=1)   # 'Out - Knee' splits, 'Day-To-Day' stays whole
-        out.append(dict(team=team, player=player, pos=pos, status=stt[0].strip(), injury=stt[1].strip() if len(stt) > 1 else "",
-                        date=date, note=note, source="B", conf=None))
-    if not out:
-        raise ValueError("page loaded but no injury rows were found, layout may have changed")
-    return out
 
 
 def scacc_parse(page, conf):
@@ -773,19 +723,6 @@ def name_key(s):
     return (parts[-1], parts[0][0]) if len(parts) >= 2 else (norm(s), "")
 
 
-def parse_date(s):
-    s = re.sub(r"^[A-Za-z]{3,9},\s*", "", str(s).strip())          # Boyd's writes 'Sun, Nov 1'
-    for fmt in ("%b %d", "%B %d", "%m/%d", "%m/%d/%Y", "%Y-%m-%d", "%b %d, %Y", "%B %d, %Y"):
-        try:
-            d = dt.datetime.strptime(s.replace(".", ""), fmt).date()
-            if d.year == 1900:
-                d = d.replace(year=TODAY.year if d.month <= TODAY.month + 1 else TODAY.year - 1)
-            return d
-        except Exception:
-            pass
-    return None
-
-
 def team_finder(meta):
     names = {k: (v["name"], v["short"]) for k, v in D1_INFO.items()} or {k: (r["name"], r["short"]) for k, r in meta.iterrows()}
     by_name = {norm(n): k for k, (n, sh) in names.items()}
@@ -847,72 +784,49 @@ def rosters(P):
     return agg, reg
 
 
-INJ_CARRY_DAYS = 7     # how long a player whose source page failed is kept on the board from his last listing
+INJ_CARRY_DAYS = 7     # how long a player whose conference page failed is kept on the board from his last listing
 NEW_DAYS = 4           # a listing counts as new for this many days after we first see it (or after it gets worse)
 
 
-def build_injuries(boyds, scacc, P, meta, box_stale=False, boyds_failed=False, scacc_failed=()):
-    """Merge both sources, resolve teams and players, and flag which absences are new."""
+def roster_match(sub, player):
+    """Find the listed player in his team's box scores: exact name, then last name + first initial.
+    Two candidates means no match, never a guess (brothers, twins)."""
+    pk = norm(player)
+    row = sub[[norm(n) == pk for n in sub.athlete_display_name]]
+    if row.empty:
+        row = sub[[name_key(n) == name_key(player) for n in sub.athlete_display_name]]
+    return row if len(row) == 1 else row.iloc[0:0]
+
+
+def build_injuries(scacc, P, meta, box_stale=False, scacc_failed=()):
+    """Resolve SCACC listings to teams and players, and flag which absences are new."""
     find = team_finder(meta)
     agg, reg = rosters(P)
-    age = (TODAY - BOYDS_UPDATED["date"]).days if BOYDS_UPDATED["date"] else None
-    boyds_stale = age is None or age > 2
     merged, unmatched = {}, []
-    for i in list(scacc) + list(boyds):
+    for i in scacc:
         tid = find(i["team"], i.get("conf"))
         if tid is None:
             unmatched.append(i["team"]); continue
-        key = (tid, norm(i["player"]))
-        i = dict(i, tid=tid)
-        if key not in merged:
-            merged[key] = dict(i, sources={i["source"]}, boyds_date=i["date"] if i["source"] == "B" else "")
+        sub = agg[agg.team == tid]
+        row = roster_match(sub, i["player"])
+        # key on the box-score name when we can find him, so two spellings of one player collapse into one entry
+        key = (tid, norm(row.athlete_display_name.iloc[0]) if len(row) else norm(i["player"]))
+        if key in merged:
+            if severity(i["status"]) > severity(merged[key]["status"]):
+                merged[key].update(status=i["status"], injury=i["injury"] or merged[key]["injury"], note=i["note"] or merged[key]["note"])
             continue
-        m = merged[key]
-        if i["source"] in m["sources"]:
-            continue                                         # same player twice on one site: keep the first
-        m["sources"].add(i["source"])
-        if i["source"] == "B":
-            m["boyds_date"] = i["date"]
-            m["note"] = m.get("note") or i["note"]
-            m["injury"] = m.get("injury") or i["injury"]
-            if not boyds_stale and severity(i["status"]) > severity(m["status"]):
-                m["status"] = i["status"]                    # fresh Boyd's and worse: be cautious
-    # 'Cam Jones' on one site and 'Cameron Jones' on the other: merge across sources only, never within one
+        merged[key] = dict(i, tid=tid, row=row)
     path = os.path.join(OUT, "injury_state.json")
     old = json.load(open(path)) if os.path.exists(path) else None
-    by_nk = {}
-    for key, m in list(merged.items()):
-        by_nk.setdefault((key[0], name_key(m["player"])), []).append(key)
-    for keys in by_nk.values():
-        s_only = [k for k in keys if merged[k]["sources"] == {"S"}]
-        b_only = [k for k in keys if merged[k]["sources"] == {"B"}]
-        if len(s_only) == 1 and len(b_only) == 1:
-            ks, kb = s_only[0], b_only[0]
-            keep, drop = (kb, ks) if f"{kb[0]}|{kb[1]}" in (old or {}) and f"{ks[0]}|{ks[1]}" not in (old or {}) else (ks, kb)
-            m, b = merged[keep], merged.pop(drop)
-            if b["source"] == "B" or "B" in b["sources"]:
-                m["boyds_date"] = b.get("boyds_date") or b["date"]
-            for f_ in ("note", "injury", "pos"):
-                m[f_] = m.get(f_) or b.get(f_)
-            if "B" in b["sources"] and not boyds_stale and severity(b["status"]) > severity(m["status"]):
-                m["status"] = b["status"]
-            m["sources"] |= b["sources"]
-    # players whose source page failed this run: keep their last record for a while instead of dropping them
-    failed_conf = set(scacc_failed)
-    carried = 0
+    # players whose conference page failed this run: keep their last record for a while instead of dropping them
+    failed_conf, carried = set(scacc_failed), 0
     for k, o in (old or {}).items():
         tid, pk = k.split("|", 1)
-        if (tid, pk) in merged:
+        if (tid, pk) in merged or "S" not in (o.get("src") or ""):
             continue
-        src = o.get("src")
-        if src is None:                                      # saved before sources were recorded
-            lost = boyds_failed or "*" in failed_conf
-        else:
-            lost = ("S" in src and ("*" in failed_conf or o.get("conf") in failed_conf)) or ("B" in src and boyds_failed)
-        if lost and (TODAY - dt.date.fromisoformat(o.get("last_seen", str(TODAY)))).days <= INJ_CARRY_DAYS:
+        if ("*" in failed_conf or o.get("conf") in failed_conf) and (TODAY - dt.date.fromisoformat(o.get("last_seen", str(TODAY)))).days <= INJ_CARRY_DAYS:
             merged[(tid, pk)] = dict(carried=True, carried_state=o)
             carried += 1 if o.get("rec") else 0
-    # first-seen tracking across daily runs
     state, out = {}, {}
     for (tid, pk), m in merged.items():
         k = f"{tid}|{pk}"
@@ -921,24 +835,15 @@ def build_injuries(boyds, scacc, P, meta, box_stale=False, boyds_failed=False, s
             if m["carried_state"].get("rec"):
                 out.setdefault(tid, []).append(dict(m["carried_state"]["rec"], carried=True, fresh=False))
             continue
-        o = (old or {}).get(k)
+        o = (old or {}).get(k) or (old or {}).get(f"{tid}|{norm(m['player'])}")   # also find entries saved under SCACC's spelling
         sev_now = severity(m["status"])
         first = o["first_seen"] if o else ("before" if old is None else str(TODAY))
         changed = o.get("changed", first) if o else first
         if o and sev_now > o.get("sev", sev_now):
             changed = str(TODAY)                              # got worse, so it counts as new again
-        bd = parse_date(m.get("boyds_date") or "")
-        if bd and (first == "before" or (first != "before" and bd < dt.date.fromisoformat(first))):
-            first = str(bd)
         when = max((dt.date.fromisoformat(x) for x in (first, changed) if x != "before"), default=None)
         listed_recent = when is not None and (TODAY - when).days <= NEW_DAYS
-        # one matched player for every field: exact name first, then last name + first initial only if it is unique
-        sub = agg[agg.team == tid]
-        row = sub[[norm(n) == pk for n in sub.athlete_display_name]]
-        if row.empty:
-            row = sub[[name_key(n) == name_key(m["player"]) for n in sub.athlete_display_name]]
-            if len(row) > 1:
-                row = row.iloc[0:0]                           # two candidates (brothers, twins): don't guess
+        row = m["row"]
         ath = row.athlete_display_name.iloc[0] if len(row) else None
         rk = reg[(reg.team == tid) & (reg.athlete_display_name == ath)] if ath else reg.iloc[0:0]
         gp = int(row.gp.iloc[0]) if len(row) else None
@@ -948,30 +853,27 @@ def build_injuries(boyds, scacc, P, meta, box_stale=False, boyds_failed=False, s
         ppg = round(float(row.ppg.iloc[0]), 1) if len(row) else None
         text = f"{m.get('note', '')} {m.get('injury', '')} {m['status']}".lower()
         long = bool(re.search(r"season|indefinite|acl|achilles|redshirt|surgery|months", text))
-        src = "".join(sorted(m["sources"]))
         # new absence = listed recently AND he played his team's last game (or we can't find him in the box scores).
         # A leftover listing for a player who is back fails the first test; stale box scores turn the flag off.
         fresh = bool(listed_recent and (played_last is not False)) and not box_stale
         rec = dict(player=m["player"], pos=m.get("pos", ""), status=m["status"].split()[0].title() if m["status"] else "",
-                   injury=m.get("injury", ""), source=src, first_seen=first, fresh=fresh,
-                   missed=missed, played_last=played_last, long=long, rank=rank, ppg=ppg, top2=bool(rank and rank <= 2),
-                   stale=bool(src == "B" and boyds_stale), sev=sev_now)
+                   injury=m.get("injury", ""), source="S", first_seen=first, fresh=fresh,
+                   missed=missed, played_last=played_last, long=long, rank=rank, ppg=ppg, top2=bool(rank and rank <= 2), sev=sev_now)
         out.setdefault(tid, []).append(rec)
-        state[k] = dict(first_seen=first, changed=changed, sev=sev_now, status=m["status"], src=src, conf=m.get("conf"),
+        state[k] = dict(first_seen=first, changed=changed, sev=sev_now, status=m["status"], src="S", conf=m.get("conf"),
                         last_seen=str(TODAY), rec=rec)
     os.makedirs(OUT, exist_ok=True)
     json.dump(state, open(path, "w"), separators=(",", ":"))
     for v in out.values():
         v.sort(key=lambda x: (not x["top2"], -x["sev"], x["rank"] or 99))
     live = [m for m in merged.values() if not m.get("carried")]
-    b = f"Boyd's {sum(1 for m in live if 'B' in m['sources'])} players, last updated {BOYDS_UPDATED['text'] or 'unknown'}" + (f" ({age} days old, so SCACC wins any disagreement)" if boyds_stale and age is not None else "")
-    status["injury sources"] = f"{b}; SCACC {sum(1 for m in live if 'S' in m['sources'])} players; {len(live)} unique, {sum(len(v) for v in out.values()) - carried} matched to teams" + (f"; {carried} kept from the last run because their page failed" if carried else "")
-    if not (boyds or scacc):
-        status["injury sources"] = f"both sources failed; {carried} players kept from the last good list, first-seen dates preserved"
+    found = sum(1 for m in live if len(m["row"]))
+    status["injuries"] = f"{len(live)} players matched to teams, {found} found in the box scores" + (f"; {carried} kept from the last run because their conference page failed" if carried else "")
+    if not scacc:
+        status["injuries"] = f"SCACC failed; {carried} players kept from the last good list, first-seen dates preserved"
     if unmatched:
         status["injury teams not matched"] = ", ".join(sorted(set(unmatched)))[:400]
-    status["injury_meta"] = dict(boyds_updated=BOYDS_UPDATED["text"], boyds_age_days=age, scacc_ok="SCACC" in status and str(status["SCACC"]).startswith("ok"),
-                                 carried=carried, box_stale=box_stale)
+    status["injury_meta"] = dict(scacc_ok="SCACC" in status and str(status["SCACC"]).startswith("ok"), carried=carried, box_stale=box_stale)
     return out
 
 
@@ -1065,20 +967,15 @@ def main():
         last, age, box_stale = box_age(G, finals)
         if box_stale:
             status["box scores"] += f" (WARNING: {age} days old; 'new absence' flags are off until it catches up)"
-    inj, boyds, scacc = {}, [], []
-    boyds_failed, scacc_failed = False, []
-    try:
-        boyds = load_injuries()
-    except Exception as e:
-        status["Boyd's"] = f"failed: {e}"; boyds_failed = True
+    inj, scacc, scacc_failed = {}, [], []
     try:
         scacc = load_scacc()
         scacc_failed = list(SCACC_FAILED)
     except Exception as e:
         status["SCACC"] = f"failed: {e}"; scacc_failed = ["*"]
-    if T is not None and (boyds or scacc or os.path.exists(os.path.join(OUT, "injury_state.json"))):
+    if T is not None and (scacc or os.path.exists(os.path.join(OUT, "injury_state.json"))):
         try:
-            inj = build_injuries(boyds, scacc, P, meta, box_stale=box_stale, boyds_failed=boyds_failed, scacc_failed=scacc_failed)
+            inj = build_injuries(scacc, P, meta, box_stale=box_stale, scacc_failed=scacc_failed)
         except Exception as e:
             status["injuries"] = f"failed: {e}"
 

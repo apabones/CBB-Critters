@@ -9,7 +9,9 @@
 <style>
 :root{--bg:#efe7d8;--surface:#fbf6ec;--ink:#221d16;--muted:#6f6556;--line:#dccfb8;--accent:#b4410e;--good:#15803d;--bad:#b91c1c;--warn:#a16207;--fav:#1d4ed8;--dog:#9a3412;
  color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#17140f;--surface:#211d17;--ink:#f2ead9;--muted:#a89d8b;--line:#3b342a;--accent:#fb923c;--good:#4ade80;--bad:#f87171;--warn:#facc15;--fav:#60a5fa;--dog:#fb923c;color-scheme:dark}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .ic svg,:root:not([data-theme="light"]) .tc-head .big svg{filter:drop-shadow(0 0 1.2px rgba(255,240,220,.55))}
+:root:not([data-theme="light"]){--bg:#17140f;--surface:#211d17;--ink:#f2ead9;--muted:#a89d8b;--line:#3b342a;--accent:#fb923c;--good:#4ade80;--bad:#f87171;--warn:#facc15;--fav:#60a5fa;--dog:#fb923c;color-scheme:dark}}
+:root[data-theme="dark"] .ic svg,:root[data-theme="dark"] .tc-head .big svg{filter:drop-shadow(0 0 1.2px rgba(255,240,220,.55))}
 :root[data-theme="dark"]{--bg:#17140f;--surface:#211d17;--ink:#f2ead9;--muted:#a89d8b;--line:#3b342a;--accent:#fb923c;--good:#4ade80;--bad:#f87171;--warn:#facc15;--fav:#60a5fa;--dog:#fb923c;color-scheme:dark}
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
@@ -77,7 +79,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .where{font:600 10.5px Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;border:1px solid var(--line);border-radius:999px;padding:0 6px;margin-left:4px;vertical-align:2px}
 .duo{display:flex;align-items:center;gap:8px}
 .ic{width:46px;height:50px;flex:none}
-.ic svg{width:46px;height:50px;display:block;background:#f6efe2;border-radius:10px}
+.ic svg{width:46px;height:50px;display:block}
 .sp{font:600 11px Barlow,sans-serif;color:var(--muted);text-align:center;margin-top:1px}
 .day{font:700 16px "Barlow Condensed",sans-serif;margin:14px 0 6px;color:var(--accent)}
 .prev{font:600 11px Barlow,sans-serif;color:var(--muted);border:1px dashed var(--muted);border-radius:999px;padding:1px 6px;margin-left:6px}
@@ -106,7 +108,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .panel{flex:0 0 100%;scroll-snap-align:start;overflow-y:auto;padding:12px 12px calc(env(safe-area-inset-bottom,0px) + 30px)}
 .panel>div{max-width:560px;margin:0 auto}
 .tc-head{display:flex;gap:12px;align-items:center}
-.tc-head .big svg{width:104px;height:114px;display:block;background:#f6efe2;border-radius:14px}
+.tc-head .big svg{width:104px;height:114px;display:block}
 .tc-name{font:700 22px/1.1 "Barlow Condensed",sans-serif}
 .rose{display:block;margin:6px auto 0;max-width:340px;width:100%}
 .roses{display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center}
@@ -117,6 +119,26 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .nums{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
 .nums div{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-size:11.5px;color:var(--muted)}
 .nums b{display:block;font:700 17px "Barlow Condensed",sans-serif;color:var(--ink)}
+.scan{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:0 0 8px}
+.scan summary{font:700 16px "Barlow Condensed",sans-serif;color:var(--ink)}
+.scan summary b{color:var(--accent)}
+.sg{display:grid;grid-template-columns:6.8em 1fr 1fr;gap:4px 6px;align-items:center;font-size:12.5px;margin-top:6px}
+.sg.g1{grid-template-columns:6.8em 1fr}
+.sg select{width:100%;min-width:0;font:500 13px Barlow,sans-serif;padding:5px 4px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.sg select.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);font-weight:700}
+.sg .h{font-weight:700;color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.04em}
+.sg .sh{grid-column:1/-1;font:700 12px Barlow,sans-serif;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:6px}
+.saved{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.chip button{font:600 13px Barlow,sans-serif;border:0;background:var(--bg);color:var(--ink);padding:5px 10px}
+.chip button+button{padding:5px 9px;color:var(--muted);border-left:1px solid var(--line)}
+.chip.on button:first-child{background:var(--ink);color:var(--surface)}
+.savebar{display:flex;gap:8px;align-items:center;margin-top:8px}
+.savebar input{flex:1;min-width:0;font:500 15px Barlow,sans-serif;padding:7px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.savebar .save{margin-top:0}
+.scanon{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.nextg{margin-top:6px;font:600 13px Barlow,sans-serif;padding:5px 11px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent)}
+.game.hl{box-shadow:0 0 0 3px var(--accent);transition:box-shadow .3s}
 .sec{font:700 14px "Barlow Condensed",sans-serif;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
 </style>
 </head>
@@ -386,13 +408,13 @@ function pillarRows(t){
 function injList(t){
   return (t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.carried ? ", from the last run (source page failed)" : i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""}</div>`).join("") || `<div class="lc">No injuries listed.</div>`;
 }
-function teamCard(id, flip){
+function teamCard(id, flip, withNext){
   const t = TM[id]; if(!t) return `<div class="empty">No data for this team yet.</div>`;
   const c = t.critter, svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color), a = t.apex;
   const fin = t.fin_n ? `${Math.round(t.fin * 100)}% of ${t.fin_n}` : "–";
   return `<div class="tc-head"><div class="big">${svg}</div><div><div class="tc-name">${t.name}</div>
       <div class="lc">${a && a.rank ? `<span class="rk">#${a.rank} of ${a.of}</span> · ` : ""}${c ? c.sp : "Blob"} · ${t.record}${a ? ` · ${a.core}/6 apex` : ""}</div>
-      <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}</div></div>
+      <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}${withNext ? nextBtn(id) : ""}</div></div>
     ${rose(t, true)}${traitTable(t)}
     <div class="nums"><div>A/TO<b>${atoTxt(t.ato)}</b></div><div>ORBTV / 100<b>${t.orbtv ?? "–"}</b></div><div>Avg margin<b>${t.margin ?? "–"}</b></div>
       <div>Last 5<b>${t.last5 || "–"}</b></div><div>Finisher<b style="font-size:14px">${fin}</b></div><div>Shooting (eFG z)<b>${t.efg_z ?? "–"}</b></div></div>
@@ -573,16 +595,86 @@ function renderRecord(v){
     group("By flag", r => (String(r.flags).match(/Wounded prey|Favorite wounded|Dog wins the glass|Edge is mostly shooting|System flip|A\/TO under/) || ["No flag"])[0]) +
     `<div class="game"><div class="mu">Latest results</div>${done.slice(-10).reverse().map(r => `<div class="mine" style="margin-top:5px"><span class="st ${r.status}">${r.status}</span> <b>${r.pick}</b> ${r.final ? "· " + r.final : ""} · ${r.confidence}/5</div>`).join("")}</div>`;
 }
+/* ---------- scanner (finviz-style filters on Upcoming) ---------- */
+const PREY = ["Rabbit", "Goat", "Hare", "Ram"];
+const spOf = t => t && t.critter ? t.critter.sp : "Blob";
+const PIL_OPTS = [["Any"], ["Positive", v => v > 0], ["Negative", v => v < 0], ["Strong (+1 or more)", v => v >= 1], ["Weak (−1 or less)", v => v <= -1]];
+const TRAIT_OPTS = [["Any"], ["Apex level", x => x.apex], ["Above average", x => x.pct >= 0.5], ["Below average", x => x.pct < 0.5], ["Not apex", x => !x.apex]];
+const SIDE_FIELDS = [
+  ["ato", "A/TO", [["Any"], ["Over 1.0", v => v > 1], ["Over 1.25", v => v > 1.25], ["Over 1.5", v => v > 1.5], ["Under 1.0", v => v < 1]], t => t.ato],
+  ...PIL.map(p => [p, p, PIL_OPTS, t => t.pillars[p]]),
+  ["sp", "Critter", [["Any"], ["Predator", v => PRED.includes(v)], ["Prey", v => PREY.includes(v)], ["Blob", v => v === "Blob"], ["Not prey", v => !PREY.includes(v)]], t => spOf(t)],
+  ["rank", "Rank", [["Any"], ["Top 25", v => v <= 25], ["Top 50", v => v <= 50], ["Top 100", v => v <= 100], ["Outside top 100", v => v > 100]], t => t.apex && t.apex.rank],
+  ["core", "Apex count", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["None", v => v === 0]], t => t.apex && t.apex.core],
+  ["inj", "New injury", [["Any"], ["Yes (top-2 scorer out)", v => v], ["No", v => !v]], (t, id) => keyOut(id).length > 0],
+  ...TRAITS.map(([k, l]) => ["t_" + k, l, TRAIT_OPTS, t => t.apex && t.apex.traits[k]]),
+];
+const hasFlag = (g, s) => analyze(g).flags.some(([, x]) => x.startsWith(s));
+const GAME_FIELDS = [
+  ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav]]],
+  ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral]]],
+  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["System flip", g => hasFlag(g, "System flip")],
+                    ["Dog wins the glass", g => hasFlag(g, "Dog wins the glass")], ["Edge is mostly shooting", g => hasFlag(g, "Edge is mostly shooting")]]],
+];
+const store = {get: (k, d) => { try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } }, set: (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }};
+let SCAN = Object.assign({mode: "ha", a: {}, b: {}, g: {}, open: false}, store.get("critterScanNow", {}));
+let SAVED = store.get("critterScans", {}), PIN = null;
+const scanCount = sc => ["a", "b", "g"].reduce((n, s) => n + Object.values(sc[s] || {}).filter(Boolean).length, 0);
+function scanMatch(g){
+  const [A, B] = SCAN.mode === "fd" ? [g.fav, g.dog] : [g.away, g.home];
+  for(const [side, id] of [["a", A], ["b", B]]){
+    for(const [k, , opts, get] of SIDE_FIELDS){
+      const i = (SCAN[side] || {})[k]; if(!i) continue;
+      const t = id && TM[id]; if(!t) return false;              // fav/dog mode with no line yet: no sides to test
+      const v = get(t, id); if(v == null || !opts[i][1](v)) return false;
+    }
+  }
+  for(const [k, , opts] of GAME_FIELDS){ const i = (SCAN.g || {})[k]; if(i && !opts[i][1](g)) return false; }
+  return true;
+}
+function scanPanel(){
+  const sides = SCAN.mode === "fd" ? ["Favorite", "Dog"] : ["Away", "Home"];
+  const sel = (side, k, opts) => `<select data-sk="${side}.${k}" class="${(SCAN[side] || {})[k] ? "on" : ""}" aria-label="${k}">${opts.map(([l], i) => `<option value="${i}"${((SCAN[side] || {})[k] || 0) === i ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+  const rows = fs => fs.map(([k, l, o]) => `<span>${l}</span>${sel("a", k, o)}${sel("b", k, o)}`).join("");
+  const n = scanCount(SCAN);
+  return `<details class="scan" id="scanbox"${SCAN.open ? " open" : ""}><summary>Scanner${n ? ` · <b>${n} filter${n > 1 ? "s" : ""} on</b>` : ""}</summary>
+    ${Object.keys(SAVED).length ? `<div class="saved">${Object.keys(SAVED).sort().map(s => `<span class="chip"><button data-scanload="${s.replace(/"/g, "&quot;")}">${s}</button><button data-scandel="${s.replace(/"/g, "&quot;")}" aria-label="Delete ${s}">×</button></span>`).join("")}</div>` : ""}
+    <div class="toggle" role="group" aria-label="Sides" style="margin-top:8px"><button data-scanmode="ha" aria-pressed="${SCAN.mode === "ha"}">Home / Away</button><button data-scanmode="fd" aria-pressed="${SCAN.mode === "fd"}">Favorite / Dog</button></div>
+    <div class="sg"><span></span><span class="h">${sides[0]}</span><span class="h">${sides[1]}</span>${rows(SIDE_FIELDS.filter(f => !f[0].startsWith("t_")))}
+      <span class="sh">Apex traits</span>${rows(SIDE_FIELDS.filter(f => f[0].startsWith("t_")))}</div>
+    <div class="sg g1"><span class="sh">Game</span>${GAME_FIELDS.map(([k, l, o]) => `<span>${l}</span>${sel("g", k, o)}`).join("")}</div>
+    <div class="lc">Pillars are vs the D1 average, so Positive = above average. Teams with fewer than 2 games, or no data, never match a filter on them.</div>
+    <div class="savebar"><input id="scanname" placeholder="Name this scan" autocomplete="off" maxlength="40"><button class="save" data-scansave="1">Save</button><button class="link" data-scanclear="1">Clear all</button></div>
+  </details>`;
+}
+function nextGame(id){
+  return S ? S.games.filter(g => g.state !== "post" && (g.home === id || g.away === id)).sort((x, y) => String(x.start || x.day).localeCompare(String(y.start || y.day)))[0] : null;
+}
+function nextBtn(id){
+  const g = nextGame(id); if(!g) return `<div class="lc">No game in the next 3 days.</div>`;
+  const opp = g.home === id ? g.away : g.home, where = g.neutral ? "vs" : g.home === id ? "vs" : "at";
+  const day = g.day === (S && S.date) ? "Today" : new Date(g.day + "T12:00:00").toLocaleDateString(undefined, {weekday: "short"});
+  return `<button class="nextg" data-next="${id}">Next game: ${day} ${where} ${nm(opp, g)} →</button>`;
+}
+function goNext(id){
+  const g = nextGame(id); if(!g) return;
+  closePanels(false);
+  PIN = g.id; view = "up";
+  document.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === "up"));
+  render();
+  const el = $("g-" + g.id);
+  if(el){ el.scrollIntoView({block: "center"}); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2400); }
+}
 function card(g){
   const a = analyze(g);
   if(!g.fav){
     const a0 = analyze(g), pv = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
-    return `<div class="game faded"><div class="duo tap" data-open="${g.id}">${critterBlock(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${critterBlock(g.home, true)}</div><div class="lc">${g.line_dropped ? "Spread hidden: ESPN's number and its listed favorite disagreed" : "No line posted yet"}</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
+    return `<div class="game faded" id="g-${g.id}"><div class="duo tap" data-open="${g.id}">${critterBlock(g.away, false)}<div class="mu">${g.away_name}<br><span class="dog">at ${g.home_name}</span>${pv}</div>${critterBlock(g.home, true)}</div><div class="lc">${g.line_dropped ? "Spread hidden: ESPN's number and its listed favorite disagreed" : "No line posted yet"}</div>${a0.flags.length ? `<div class="flags">${a0.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}${injBlock([g.away, g.home])}</div>`;
   }
   const tier = a.level === "too early" ? `<span class="tier early">too early</span>` :
     `<span class="tier${a.level === "early" ? " early" : ""}">${a.tier}/4${a.preyEdges ? ` · dog ${a.preyEdges}` : ""}${a.level === "early" ? " early" : ""}</span>`;
   const preview = S && g.day && g.day !== S.date ? `<span class="prev">preview</span>` : "";
-  return `<div class="game${a.level === "scored" ? "" : " faded"}">
+  return `<div class="game${a.level === "scored" ? "" : " faded"}" id="g-${g.id}">
    <div class="top tap" data-open="${g.id}"><div class="duo">${critterBlock(g.fav, false)}<div class="mu"><span class="fav">${nm(g.fav, g)} -${g.line}</span><br><span class="dog">${venue(g)}</span>${preview}</div>${critterBlock(g.dog, true)}</div>${tier}</div>
    <div class="lc">Spread says <b>${pct(g.spread_win)}</b> to win${g.ml_win != null ? ` · book moneyline ${pct(g.ml_win)}` : ""}</div>
    ${a.flags.length ? `<div class="flags">${a.flags.map(([k, t]) => `<span class="f ${k}">${t}</span>`).join("")}</div>` : ""}
@@ -602,18 +694,43 @@ function render(){
   const games = S.games.filter(g => g.state !== "post" && (!g.day || g.day === S.date));
   const all = S.games.filter(g => g.state !== "post");
   if(view === "up"){
-    v.innerHTML = `<input class="search" id="uq" placeholder="Find a team's next game" autocomplete="off"><div id="ul"></div>`;
-    const draw = () => { const q = $("uq").value.trim().toLowerCase();
+    v.innerHTML = `<div id="scanwrap">${scanPanel()}</div><div id="scaninfo"></div><input class="search" id="uq" placeholder="Find a team's next game" autocomplete="off"><div id="ul"></div>`;
+    const draw = () => { const q = $("uq").value.trim().toLowerCase(), on = scanCount(SCAN) > 0;
       const days = [...new Set(all.map(g => g.day))].sort();
+      let shown = 0;
       $("ul").innerHTML = days.map(d => { let gs = sortGames(all.filter(g => g.day === d));
-        if(q) gs = gs.filter(g => (g.home_name + " " + g.away_name).toLowerCase().includes(q));
+        gs = gs.filter(g => g.id === PIN || ((!q || (g.home_name + " " + g.away_name).toLowerCase().includes(q)) && (!on || scanMatch(g))));
         if(!gs.length) return "";
+        shown += gs.length;
         const lab = new Date(d + "T12:00:00").toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
-        return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") || `<div class="empty">No games in the next 3 days${q ? " for that team" : ""}.</div>`; };
+        return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") ||
+        `<div class="empty">${on ? "No games match this scan in the next 3 days." : `No games in the next 3 days${q ? " for that team" : ""}.`}</div>`;
+      $("scaninfo").innerHTML = on ? `<div class="banner scanon"><span>Scanner on: <b>${shown - (PIN && !scanMatch(gameById(PIN)) ? 1 : 0)} of ${all.length}</b> games match${SCAN.name ? ` "${SCAN.name}"` : ""}</span><button class="link" data-scanclear="1">Clear</button></div>` : "";
+    };
+    const wire = () => {
+      $("scanwrap").innerHTML = scanPanel();
+      const box = $("scanbox"); box.ontoggle = () => { SCAN.open = box.open; store.set("critterScanNow", SCAN); };
+      box.querySelectorAll("select[data-sk]").forEach(el => el.onchange = () => {
+        const [side, k] = el.dataset.sk.split("."); SCAN[side] = SCAN[side] || {};
+        if(+el.value) SCAN[side][k] = +el.value; else delete SCAN[side][k];
+        delete SCAN.name; PIN = null; el.classList.toggle("on", +el.value > 0); changed(false); });
+    };
+    const changed = rebuild => { store.set("critterScanNow", SCAN); if(rebuild) wire();
+      const sm = document.querySelector("#scanbox summary"), n = scanCount(SCAN); if(sm) sm.innerHTML = `Scanner${n ? ` · <b>${n} filter${n > 1 ? "s" : ""} on</b>` : ""}`; draw(); };
+    $("view").onclick = e => {
+      const b = e.target.closest("[data-scanmode],[data-scanload],[data-scandel],[data-scansave],[data-scanclear]"); if(!b) return;
+      if(b.dataset.scanmode){ SCAN.mode = b.dataset.scanmode; delete SCAN.name; PIN = null; changed(true); }
+      else if(b.dataset.scanload){ const sv = SAVED[b.dataset.scanload]; if(sv){ SCAN = Object.assign({}, JSON.parse(JSON.stringify(sv)), {open: true, name: b.dataset.scanload}); PIN = null; changed(true); } }
+      else if(b.dataset.scandel){ delete SAVED[b.dataset.scandel]; store.set("critterScans", SAVED); changed(true); }
+      else if(b.dataset.scansave){ const name = $("scanname").value.trim(); if(!name || !scanCount(SCAN)){ $("scanname").placeholder = scanCount(SCAN) ? "Type a name first" : "Set a filter first"; return; }
+        SAVED[name] = {mode: SCAN.mode, a: SCAN.a, b: SCAN.b, g: SCAN.g}; SCAN.name = name; store.set("critterScans", SAVED); changed(true); }
+      else if(b.dataset.scanclear){ SCAN = {mode: SCAN.mode, a: {}, b: {}, g: {}, open: SCAN.open}; PIN = null; changed(true); }
+    };
     $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.<br>
       Apex dots, in order: ${TRAITS.map(([, l, c]) => `<b style="color:${c}">${l}</b>`).join(" · ")}. Filled = apex level. <b>Tap a matchup</b> for full team cards, then swipe.</div>`);
-    $("uq").addEventListener("input", draw); draw(); return;
+    $("uq").addEventListener("input", () => { PIN = null; draw(); }); wire(); draw(); return;
   }
+  $("view").onclick = null;
   if(view === "bet"){
     renderBet(v);
   } else if(view === "record"){
@@ -629,7 +746,7 @@ function render(){
       const ranked = ids.filter(rk).sort((a, b) => teamOrder === "best" ? rk(a) - rk(b) : rk(b) - rk(a));
       const rest = ids.filter(k => !rk(k)).sort((a, b) => TM[b].games - TM[a].games || TM[a].name.localeCompare(TM[b].name));
       const list = ranked.concat(rest);
-      $("tl").innerHTML = list.slice(0, limit).map(k => `<div class="game${TM[k].stage === "scored" ? "" : " faded"}">${teamCard(k, false)}</div>`).join("") +
+      $("tl").innerHTML = list.slice(0, limit).map(k => `<div class="game${TM[k].stage === "scored" ? "" : " faded"}">${teamCard(k, false, true)}</div>`).join("") +
         (list.length > limit ? `<button class="more" id="tmore">Show more (${list.length - limit} left)</button>` : "") || `<div class="empty">No teams match.</div>`;
       const m = $("tmore"); if(m) m.onclick = () => { limit += 20; draw(); };
     };
@@ -639,12 +756,13 @@ function render(){
     const M = (MV && MV.movers) || [];
     v.innerHTML = `<div class="legend">Teams whose critter changed since about a week ago, whose last 5 games moved a pillar by 0.75+, or who won 4 of their last 5. <b>Real shift</b> = winning with better pillars. <b>Hot streak</b> = winning without them, often shooting.</div>` +
       (M.map(m => `<div class="game"><div class="top"><div class="duo">${icon(m.team, false)}<div class="mu">${m.name}<br><span class="dog">${m.then && m.then !== m.now ? `${m.then} → ${m.now}` : m.now} · last 5: ${m.last5}</span></div></div>${m.label ? `<span class="tier${m.label.startsWith("Real") ? "" : " early"}">${m.label}</span>` : ""}</div>
-        ${Object.keys(m.jumps).length ? `<div class="flags">${Object.entries(m.jumps).map(([p, d]) => `<span class="f ${d > 0 ? "bet" : "bad"}">${p} ${d > 0 ? "+" : ""}${d.toFixed(1)}</span>`).join("")}</div>` : ""}</div>`).join("") ||
+        ${Object.keys(m.jumps).length ? `<div class="flags">${Object.entries(m.jumps).map(([p, d]) => `<span class="f ${d > 0 ? "bet" : "bad"}">${p} ${d > 0 ? "+" : ""}${d.toFixed(1)}</span>`).join("")}</div>` : ""}${nextBtn(m.team)}</div>`).join("") ||
       `<div class="empty">No movers yet. This fills in once teams reach 5 games and there's a week of daily snapshots to compare against.</div>`);
   }
 }
 document.addEventListener("click", e => {
-  if(e.target.closest("button,input,a,summary,details")) return;
+  const nx = e.target.closest("[data-next]"); if(nx){ goNext(nx.dataset.next); return; }
+  if(e.target.closest("button,input,a,summary,details,select")) return;
   const o = e.target.closest("[data-open]"); if(o) openGame(o.dataset.open);
 });
 $("ovx").onclick = () => closePanels(false);
@@ -696,8 +814,8 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
       <div class="lc">Blanked = left out of the ratings as implausible. Kept = still counted, but unusual enough to look at. Tap a game for ESPN's box score.</div>
       ${zf.map(z => `<div class="lc"><a href="https://www.espn.com/mens-college-basketball/boxscore/_/gameId/${z.game}" target="_blank" rel="noopener">${z.date} ${z.team} vs ${z.opp}</a>: ${z.stat.replace(/_/g, " ")} ${z.value ?? "blank"} (${z.why}) · <b>${z.blanked ? "blanked" : "kept"}</b></div>`).join("")}</details>`);
     const im = (L.status || {}).injury_meta;
+    if(im && im.scacc_ok === false) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Some SCACC injury pages didn't load this run. Players from those conferences are shown from the last good run.</div>`);
     if(im && im.box_stale) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Box scores are running behind, so "played last game" may be wrong. New-absence flags (Wounded prey, Favorite wounded) are off until they catch up.</div>`);
-    if(im && (im.boyds_age_days == null || im.boyds_age_days > 3)) $("sub").insertAdjacentHTML("afterend", `<div class="banner">Boyd's injury list was last updated ${im.boyds_updated || "a while ago"}. SCACC is the live source for injuries right now.</div>`);
   }catch(e){ $("sub").textContent = "Couldn't load data. Run the workflow once from the Actions tab."; }
   render();
   await loadLog(); render();
