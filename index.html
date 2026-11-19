@@ -139,6 +139,7 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .scanon{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .nextg{margin-top:6px;font:600 13px Barlow,sans-serif;padding:5px 11px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent)}
 .game.hl{box-shadow:0 0 0 3px var(--accent);transition:box-shadow .3s}
+.early .ic{opacity:.55}
 .sec{font:700 14px "Barlow Condensed",sans-serif;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
 </style>
 </head>
@@ -165,7 +166,10 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 let preyCut = 1;
 const lerp = (a, b, x) => a + (b - a) * Math.max(0, Math.min(1, x));
 function hash(s){ let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296; }
-const PRED = ["Saber-tooth","Gorilla","Lion","Wolf","Weasel","Tiger","Jackal"];
+const ART_PRED = ["Saber-tooth","Gorilla","Lion","Wolf","Weasel","Tiger","Jackal"];
+const PRED = ["Fox", "Bobcat", "Wolf", "Mountain lion", "Tiger"], PREY = ["Rat", "Rabbit", "Goat", "Elk", "Bison"];
+/* each animal borrows one of the trait-built faces; size scales it */
+const ART = {"Fox": "Jackal", "Bobcat": "Weasel", "Wolf": "Wolf", "Mountain lion": "Lion", "Tiger": "Tiger", "Rat": "Hare", "Rabbit": "Rabbit", "Goat": "Goat", "Elk": "Ram", "Bison": "Ram"};
 function species(t){
   const pred = t.core >= 4 || t.net >= 0.85;
   if (pred){
@@ -261,7 +265,8 @@ function shade(hex, f){ const n = parseInt(hex.slice(1), 16); let r = n >> 16, g
   return `rgb(${r},${g},${b})`; }
 function lum(hex){ const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; }
 function creature(t, flip){
-  const sp0 = species(t); if (PRED.includes(sp0)) return predator(t, sp0, flip);
+  if (t.sp === "Blob") return blobSvg(t.col);
+  const sp0 = species(t); if (ART_PRED.includes(sp0)) return predator(t, sp0, flip);
   const rnd = hash(t.n), sp = sp0, apex = t.core / 6;
   const cx = 150, cy = 178, R = 84;
   const fur = shade(t.col, 0.18), dark = shade(t.col, -0.45), light = shade(t.col, 0.62);
@@ -338,7 +343,7 @@ function creature(t, flip){
   return `<svg viewBox="0 0 300 330" role="img" aria-label="${t.n} drawn as a ${sp}"><g ${flip ? `transform="translate(300 0) scale(-1 1)"` : ""}>${s}</g></svg>`;
 }
 
-species = t => t.sp;   /* species now come from the daily data job */
+species = t => ART[t.sp] || t.sp;   /* species come from the daily data job */
 
 const $ = id => document.getElementById(id);
 const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
@@ -349,12 +354,18 @@ const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.a
 function blobSvg(col){
   return `<svg viewBox="0 0 300 330"><path d="M150 70 C 230 66 262 130 250 196 C 240 262 190 286 146 282 C 92 278 46 250 44 186 C 42 120 82 74 150 70 Z" fill="${col}" stroke="#0b0a09" stroke-width="6"/><circle cx="118" cy="168" r="14" fill="#fffdf5" stroke="#0b0a09" stroke-width="4"/><circle cx="182" cy="168" r="14" fill="#fffdf5" stroke="#0b0a09" stroke-width="4"/><circle cx="118" cy="170" r="5" fill="#141210"/><circle cx="182" cy="170" r="5" fill="#141210"/></svg>`;
 }
+function sized(svg, c){
+  if(!c || !c.size) return svg;
+  const k = (0.6 + 0.1 * (c.size - 1)).toFixed(2);
+  return svg.replace(/(<svg[^>]*>)/, `$1<g transform="translate(150 318) scale(${k}) translate(-150 -318)">`).replace(/<\/svg>$/, "</g></svg>");
+}
+const sizeTip = c => c && c.size ? `Size ${c.size} of 5${c.size_why ? ": " + c.size_why : ""}` : "";
 function icon(id, flip){
   const t = TM[id];
   if(!t) return `<div class="ic">${blobSvg("#9a9387")}</div>`;
   const c = t.critter;
-  const svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
-  return `<div><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div></div>`;
+  const svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color);
+  return `<div title="${sizeTip(c)}"${c && c.early ? ` class="early"` : ""}><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div></div>`;
 }
 /* ---------- apex traits: dots, rose chart, team cards ---------- */
 const TRAITS = [["runs", "Runs 12+", "#dc2626"], ["paint", "Paint edge", "#ea580c"], ["rim", "Rim attacks", "#ca8a04"],
@@ -370,9 +381,9 @@ function dots(t){
 function critterBlock(id, flip){
   const t = TM[id];
   if(!t) return `<div class="cb"><div class="ic">${blobSvg("#9a9387")}</div></div>`;
-  const c = t.critter, svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color);
+  const c = t.critter, svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color);
   const rk = t.apex && t.apex.rank ? `<span class="rk">#${t.apex.rank}</span> ` : "";
-  return `<div class="cb"><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}</div>${dots(t)}<div class="mini">${rk}A/TO ${atoTxt(t.ato)}</div></div>`;
+  return `<div class="cb${c && c.early ? " early" : ""}" title="${sizeTip(c)}"><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div>${dots(t)}<div class="mini">${rk}A/TO ${atoTxt(t.ato)}</div></div>`;
 }
 function rose(t, big){
   const a = t && t.apex, R = 100, r0 = 14, W = big ? 172 : 104;
@@ -410,10 +421,10 @@ function injList(t){
 }
 function teamCard(id, flip, withNext){
   const t = TM[id]; if(!t) return `<div class="empty">No data for this team yet.</div>`;
-  const c = t.critter, svg = c ? creature({n: t.name, col: t.color, ...c}, flip) : blobSvg(t.color), a = t.apex;
+  const c = t.critter, svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color), a = t.apex;
   const fin = t.fin_n ? `${Math.round(t.fin * 100)}% of ${t.fin_n}` : "–";
   return `<div class="tc-head"><div class="big">${svg}</div><div><div class="tc-name">${t.name}</div>
-      <div class="lc">${a && a.rank ? `<span class="rk">#${a.rank} of ${a.of}</span> · ` : ""}${c ? c.sp : "Blob"} · ${t.record}${a ? ` · ${a.core}/6 apex` : ""}</div>
+      <div class="lc">${a && a.rank ? `<span class="rk">#${a.rank} of ${a.of}</span> · ` : ""}${c ? c.sp : "Blob"} · ${t.record}${a ? ` · ${a.core}/6 apex` : ""}</div>${c && c.size ? `<div class="lc">Size ${c.size} of 5${c.size_why ? `: ${c.size_why}` : ""}</div>` : ""}
       <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}${withNext ? nextBtn(id) : ""}</div></div>
     ${rose(t, true)}${traitTable(t)}
     <div class="nums"><div>A/TO<b>${atoTxt(t.ato)}</b></div><div>ORBTV / 100<b>${t.orbtv ?? "–"}</b></div><div>Avg margin<b>${t.margin ?? "–"}</b></div>
@@ -596,7 +607,6 @@ function renderRecord(v){
     `<div class="game"><div class="mu">Latest results</div>${done.slice(-10).reverse().map(r => `<div class="mine" style="margin-top:5px"><span class="st ${r.status}">${r.status}</span> <b>${r.pick}</b> ${r.final ? "· " + r.final : ""} · ${r.confidence}/5</div>`).join("")}</div>`;
 }
 /* ---------- scanner (finviz-style filters on Upcoming) ---------- */
-const PREY = ["Rabbit", "Goat", "Hare", "Ram"];
 const spOf = t => t && t.critter ? t.critter.sp : "Blob";
 const PIL_OPTS = [["Any"], ["Positive", v => v > 0], ["Negative", v => v < 0], ["Strong (+1 or more)", v => v >= 1], ["Weak (−1 or less)", v => v <= -1]];
 const TRAIT_OPTS = [["Any"], ["Apex level", x => x.apex], ["Above average", x => x.pct >= 0.5], ["Below average", x => x.pct < 0.5], ["Not apex", x => !x.apex]];
@@ -604,6 +614,8 @@ const SIDE_FIELDS = [
   ["ato", "A/TO", [["Any"], ["Over 1.0", v => v > 1], ["Over 1.25", v => v > 1.25], ["Over 1.5", v => v > 1.5], ["Under 1.0", v => v < 1]], t => t.ato],
   ...PIL.map(p => [p, p, PIL_OPTS, t => t.pillars[p]]),
   ["sp", "Critter", [["Any"], ["Predator", v => PRED.includes(v)], ["Prey", v => PREY.includes(v)], ["Blob", v => v === "Blob"], ["Not prey", v => !PREY.includes(v)]], t => spOf(t)],
+  ["size", "Critter size", [["Any"], ["3+ (Wolf / Goat or bigger)", v => v >= 3], ["4+ (Mountain lion / Elk or bigger)", v => v >= 4], ["5 (Tiger / Bison)", v => v >= 5],
+                            ["3 or less (Wolf / Goat or smaller)", v => v <= 3], ["2 or less (Bobcat / Rabbit or smaller)", v => v <= 2]], t => t.critter && t.critter.sp !== "Blob" ? t.critter.size : null],
   ["rank", "Rank", [["Any"], ["Top 25", v => v <= 25], ["Top 50", v => v <= 50], ["Top 100", v => v <= 100], ["Outside top 100", v => v > 100]], t => t.apex && t.apex.rank],
   ["core", "Apex count", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["None", v => v === 0]], t => t.apex && t.apex.core],
   ["inj", "New injury", [["Any"], ["Yes (top-2 scorer out)", v => v], ["No", v => !v]], (t, id) => keyOut(id).length > 0],
@@ -727,7 +739,8 @@ function render(){
       else if(b.dataset.scanclear){ SCAN = {mode: SCAN.mode, a: {}, b: {}, g: {}, open: SCAN.open}; PIN = null; changed(true); }
     };
     $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.<br>
-      Apex dots, in order: ${TRAITS.map(([, l, c]) => `<b style="color:${c}">${l}</b>`).join(" · ")}. Filled = apex level. <b>Tap a matchup</b> for full team cards, then swipe.</div>`);
+      Apex dots, in order: ${TRAITS.map(([, l, c]) => `<b style="color:${c}">${l}</b>`).join(" · ")}. Filled = apex level. <b>Tap a matchup</b> for full team cards, then swipe.<br>
+      Food chain: predators ${PRED.join(" < ")}; prey ${PREY.join(" < ")}. Size = the toughest level of team it has proven itself against: predators by beating them, prey by leading or tied at halftime.</div>`);
     $("uq").addEventListener("input", () => { PIN = null; draw(); }); wire(); draw(); return;
   }
   $("view").onclick = null;

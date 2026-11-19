@@ -48,6 +48,7 @@ def load_boxes():
 
 
 D1_INFO = {}
+NEUTRAL = set()   # game ids played on a neutral floor
 
 
 def load_d1():
@@ -58,6 +59,8 @@ def load_d1():
     ids = ids[ids.conference_id.notna()].drop_duplicates("id")
     for r in ids.itertuples():   # every D1 team, even before its first D1 game
         D1_INFO[str(int(r.id))] = dict(name=r.display_name, short=r.location, color=r.color, conf=int(r.conference_id))
+    if "neutral_site" in s:
+        NEUTRAL.update(s.loc[s.neutral_site.astype(str).str.lower().isin(["true", "1"]), "id"].astype("int64").astype(str))
     return {str(int(i)): int(c) for i, c in zip(ids.id, ids.conference_id)}
 
 
@@ -67,7 +70,7 @@ REQUIRED = ["game_id", "game_date", "team_id", "opponent_team_id", "team_display
             "total_turnovers", "steals", "blocks", "assists", "points_in_paint", "turnover_points", "fast_break_points"]
 
 
-METHOD = "2026-11-16"     # bump when the rating method changes, so Movers doesn't report the change as teams moving
+METHOD = "2026-11-19"     # bump when the rating method changes, so Movers doesn't report the change as teams moving
 SHRINK_K = 3              # an opponent with k other games gets half weight in the schedule adjustment
 ZERO_FLAGS = []           # box score values that look wrong, for a manual check
 POOL = {"min": 3, "n": 0}
@@ -80,7 +83,8 @@ def team_games(t, d1=None):
     n = lambda c: pd.to_numeric(t[c], errors="coerce")       # a blank stays blank instead of becoming 0
     B = pd.DataFrame({"g": t.game_id.astype(str), "team": t.team_id.astype(str), "opp": t.opponent_team_id.astype(str),
                       "date": t.game_date.astype(str), "name": t.team_display_name, "short": t.team_location,
-                      "color": t.team_color.astype(str), "pts": n("team_score"), "opts": n("opponent_team_score")})
+                      "color": t.team_color.astype(str), "pts": n("team_score"), "opts": n("opponent_team_score"),
+                      "ha": t.team_home_away.astype(str) if "team_home_away" in t else "unknown"})
     for c in ["field_goals_made", "field_goals_attempted", "three_point_field_goals_made", "three_point_field_goals_attempted",
               "free_throws_attempted", "offensive_rebounds", "defensive_rebounds", "total_turnovers", "steals", "blocks",
               "assists", "points_in_paint", "turnover_points", "fast_break_points"]:
@@ -89,7 +93,7 @@ def team_games(t, d1=None):
     names = B.drop_duplicates("team").set_index("team").short.to_dict()
 
     def pair(B):
-        O = B.drop(columns=["opp", "date", "name", "short", "color", "pts", "opts"]).add_prefix("o_").rename(columns={"o_g": "g"})
+        O = B.drop(columns=["opp", "date", "name", "short", "color", "pts", "opts", "ha"]).add_prefix("o_").rename(columns={"o_g": "g"})
         M = B.merge(O, left_on=["g", "opp"], right_on=["g", "o_team"], how="left")
         M = M[M.o_team.notna()].copy()       # opponent box missing = non-D1 opponent; those games are skipped
         if d1:   # drop games against non-Division I opponents, the way KenPom-style ratings do
@@ -126,7 +130,8 @@ def team_games(t, d1=None):
     M["poss"] = (P("") + P("o_")) / 2
     M = M[(M.poss >= 40) & (M.field_goals_attempted >= 20)]     # a blank core stat makes poss blank, which drops the game
     c1 = lambda s: s.clip(lower=1)
-    G = pd.DataFrame({"g": M.g, "team": M.team, "opp": M.opp, "date": M.date, "win": (M.pts > M.opts).astype(int), "margin": M.pts - M.opts})
+    G = pd.DataFrame({"g": M.g, "team": M.team, "opp": M.opp, "date": M.date, "win": (M.pts > M.opts).astype(int), "margin": M.pts - M.opts,
+                      "ha": np.where(M.g.isin(NEUTRAL), "neutral", M.ha)})
     # totals kept per game so ratio stats can be built from season sums instead of averaging tiny-denominator games
     G["_ast"], G["_to"], G["_otp"], G["_tp"], G["_oto"] = M.assists, M.total_turnovers, M.o_turnover_points, M.turnover_points, M.o_total_turnovers
     # Ball Security (offense): turnover rate, A/TO, damage (points allowed per own turnover)
@@ -306,10 +311,12 @@ def pbp_features(d1):
         tt = x.end_game_seconds_remaining.astype(float).ffill().values
         mg = (x.home_score - x.away_score).astype(float).ffill().fillna(0).values
         fin = mg[-1] if len(mg) else 0
+        first = mg[tt >= 1200]
+        half = float(first[-1]) if len(first) and (tt <= 1200).any() else float("nan")   # score at the end of the first half
         for t, o, sg in ((h, a, 1), (a, h, -1)):
             chance = bool(((tt <= 1200) & (sg * mg >= 15)).any())
             rows.append({"g": gid, "team": t, "Runs 12+": st[t]["r12"], "Run pressure allowed": st[o]["rp"],
-                         "Rim share": st[t]["rim"] / max(1, st[t]["fga"]), "fin_chance": int(chance), "fin_conv": int(chance and sg * fin > 20)})
+                         "Rim share": st[t]["rim"] / max(1, st[t]["fga"]), "fin_chance": int(chance), "fin_conv": int(chance and sg * fin > 20), "half": sg * half})
     return pd.DataFrame(rows)
 
 
@@ -337,43 +344,93 @@ def tier_pools(T, pool_state):
     return out
 
 
-def critters(T, pool_state):
-    """Species for teams with 5+ games, from schedule-adjusted traits ranked within the team's tier pool."""
-    S = T[T.stage == "scored"]
+PRED_NAMES = ["Fox", "Bobcat", "Wolf", "Mountain lion", "Tiger"]
+PREY_NAMES = ["Rat", "Rabbit", "Goat", "Elk", "Bison"]
+LEVELS = [(0.25, "bottom quarter"), (0.5, "below average"), (0.75, "above average"), (0.9, "top quarter"), (9, "top 10%")]
+CRITTER_MIN = 3     # games before a team gets a critter (faded until 5)
+PREY_CUT = 0.30     # prey = no more than one apex trait and an apex average in the bottom 30% of the tier pool
+
+
+def opp_strength(T, G):
+    """Each game's opponent strength as a percentile of schedule-adjusted net rating, from the opponent's OTHER games."""
+    GA, netc = ADJ["G"], "Net per 100"
+    s = GA.groupby("team")[netc].agg(["sum", "count"])
+    mirror = GA[["g", "team", netc]].rename(columns={"team": "opp", netc: "_m"})
+    x = G[["g", "opp"]].merge(mirror, on=["g", "opp"], how="left")
+    so, co = x.opp.map(s["sum"]), x.opp.map(s["count"])
+    loo = (so - x._m) / (co - 1).where(co > 1)
+    loo = loo.fillna(x.opp.map(T[netc]))          # an opponent with one game: use its rating as is
+    return pd.Series(pct_vs(T.loc[T.games >= POOL["min"], netc], loo).fillna(0.5).values, index=G.index)
+
+
+def sizes(T, G):
+    """How big the critter is = the strongest opponent level it has proven itself against.
+    Predators prove a level by beating a team there. Everyone else proves it by beating them, or by leading or being tied
+    at halftime (home team gives back 1.5 points, road team gets them). No play-by-play: a loss by 6 or less counts."""
+    if G.empty:
+        return {}
+    op = opp_strength(T, G)
+    lvl = np.searchsorted([c for c, _ in LEVELS[:-1]], op.values, side="right") + 1
+    half = G["half"] if "half" in G else pd.Series(float("nan"), index=G.index)
+    adj = half + np.where(G.ha == "away", 1.5, np.where(G.ha == "home", -1.5, 0))
+    stood = np.where(half.notna(), adj >= 0, G.margin >= -6)
+    D = pd.DataFrame({"team": G.team.values, "opp": G.opp.values, "date": G.date.values, "lvl": lvl, "win": G.win.values.astype(bool),
+                      "stood": stood.astype(bool), "half": half.values, "margin": G.margin.values})
+    out = {}
+    for tid, d in D.groupby("team"):
+        def best(mask):
+            x = d[mask]
+            if x.empty:
+                return 1, None
+            x = x.sort_values(["lvl", "date"]).iloc[-1]
+            o = (D1_INFO.get(x.opp) or {}).get("short", x.opp)
+            if x.win:
+                why = f"beat {o} by {int(x.margin)}"
+            elif not pd.isna(x.half):
+                why = f"{'led' if x.half > 0 else 'tied'} {o} at the half{f' by {int(x.half)}' if x.half > 0 else ''}, lost by {-int(x.margin)}"
+            else:
+                why = f"lost by {-int(x.margin)} to {o}"
+            return int(x.lvl), f"{why} ({LEVELS[int(x.lvl) - 1][1]})"
+        out[tid] = dict(hunt=best(d.win), stand=best(d.win | d.stood))
+    return out
+
+
+def critters(T, G, pool_state):
+    """Role from the apex traits (same rules for every team), size from who the team has proven itself against."""
+    S = T[T.games >= CRITTER_MIN]          # 3 and 4 game teams get a critter too, marked early (the page fades them)
     if S.empty:
         return {}
     pools = tier_pools(T, pool_state)
     traits = {"fang": "Runs 12+", "flat": "Run pressure allowed", "paint": "Paint diff", "rim": "Rim share", "reb": "Reb diff",
-              "hkm": "Disruption", "fb": "FB diff", "orbtv": "ORBTV per 100", "dreb": "DRB%", "orbp": "ORB%",
+              "hkm": "Disruption", "fb": "FB diff", "orbtv": "ORBTV per 100", "dreb": "DRB%",
               "ato": "A/TO", "efg": "eFG", "press": "Forced TO rate", "stl": "Steal rate", "net": "Net per 100"}
+    apex_keys = ["fang", "paint", "rim", "reb", "hkm", "dreb"]
+    SZ = sizes(T, G)
     out = {}
     for tier, grp in S.groupby("tier"):
         base, kind = pools[tier]
         X = T.loc[base.index.union(grp.index)]
         R = {k: pct_vs(base[c], X[c]) if c in base and base[c].notna().any() else pd.Series(0.5, index=X.index) for k, c in traits.items()}
-        prey_all = 1 - (R["reb"] + R["orbtv"] + R["fb"] + R["dreb"] + R["orbp"]) / 5
-        cut = prey_all.reindex(base.index).quantile(0.8)
+        apex_avg = sum(R[k] for k in apex_keys) / len(apex_keys)
+        prey_line = apex_avg.reindex(base.index).quantile(PREY_CUT)
         for tid in grp.index:
             v = {k: round(float(R[k].get(tid, 0.5)) if not pd.isna(R[k].get(tid, 0.5)) else 0.5, 3) for k in traits}
-            core = sum(x >= f for x, f in zip([v["fang"], v["paint"], v["rim"], v["reb"], v["hkm"], v["dreb"]], APEX))
-            prey = round(float(prey_all.get(tid, 0.5)), 3)
+            core = sum(v[k] >= f for k, f in zip(apex_keys, APEX))
+            avg = float(apex_avg.get(tid, 0.5))
             r = T.loc[tid]
-            eligible = r.wins * 2 >= r.games and bool(r.big_win)       # predator minimums: winning record and a 15-point win
-            sp = "Blob"
-            if (core >= 4 or v["net"] >= 0.85) and eligible:
-                if v["fang"] >= 0.9 and v["net"] >= 0.97 and core >= 5: sp = "Saber-tooth"
-                elif v["ato"] >= 0.85 and v["efg"] >= 0.85 and v["net"] >= 0.85: sp = "Gorilla"
-                elif v["reb"] >= 0.8 and v["paint"] >= 0.75: sp = "Lion"
-                elif v["press"] >= 0.7 and v["fb"] >= 0.6: sp = "Wolf"
-                elif (v["press"] >= 0.7 or v["stl"] >= 0.75) and v["reb"] < 0.6: sp = "Weasel"
-                elif core >= 5: sp = "Tiger"
-                else: sp = "Jackal"
-            elif prey >= cut:
-                sp = "Rabbit" if v["ato"] < 0.4 else "Goat"
-            elif prey >= 0.6:
-                sp = "Hare" if v["ato"] < 0.4 else "Ram"
-            out[tid] = dict(sp=sp, tier=tier, pool=kind, pool_n=int(len(base)), core=int(core), prey=prey,
-                            **{k: v[k] for k in traits if k not in ("orbp",)})
+            eligible = r.wins * 2 >= r.games and bool(r.big_win)       # predator guardrail: winning record and a 15-point win
+            sz = SZ.get(tid, {"hunt": (1, None), "stand": (1, None)})
+            if core >= 4 and eligible:
+                role, (size, why) = "predator", sz["hunt"]
+                sp = PRED_NAMES[size - 1]
+            elif core <= 1 and avg <= prey_line:
+                role, (size, why) = "prey", sz["stand"]
+                sp = PREY_NAMES[size - 1]
+            else:
+                role, (size, why) = "blob", sz["stand"]
+                sp = "Blob"
+            out[tid] = dict(sp=sp, role=role, size=int(size), early=bool(r.games < SCORED), size_why=why, tier=tier, pool=kind, pool_n=int(len(base)), core=int(core),
+                            prey=round(1 - avg, 3), apex_avg=round(avg, 3), **v)
     return out
 
 
@@ -389,16 +446,9 @@ def apex_profile(T, G, pool_state):
     if rated.empty:
         return {}
     pools = tier_pools(T, pool_state)
-    GA = ADJ["G"]
-    # opponent strength without the game being rated: the opponent's adjusted net from its other games
-    netc = "Net per 100"
-    s = GA.groupby("team")[netc].agg(["sum", "count"])
-    mirror = GA[["g", "team", netc]].rename(columns={"team": "opp", netc: "_m"})
     Gx = G[G.team.isin(rated.index)][["g", "team", "opp"] + [c for _, c in APEX_TRAITS if c in G]].copy()
-    Gx = Gx.merge(mirror, on=["g", "opp"], how="left")
-    so, co = Gx.opp.map(s["sum"]), Gx.opp.map(s["count"])
-    loo = (so - Gx._m) / (co - 1).where(co > 1)
-    Gx["opp_pct"] = pct_vs(T.loc[T.games >= POOL["min"], netc], loo).fillna(0.5).values
+    Gx["opp_pct"] = opp_strength(T, G).reindex(Gx.index).values
+    GA = ADJ["G"]
     Gx["w"] = np.where(Gx.opp_pct < 0.25, 0.5, 1.0)
     adjg = G[["g", "team"]].join(GA.drop(columns=["g", "team", "opp"]))
     Gx = Gx.merge(adjg, on=["g", "team"], how="left", suffixes=("", "_adj"))
@@ -464,7 +514,7 @@ def movers(teams, today, tiers=()):
         up = any(m > 0 for m in jumps.values())
         hot = (t.get("last5_wins") or 0) >= 4
         changed = then is not None and then != t.get("species")
-        if not (changed or jumps or hot):
+        if not (changed or jumps):              # a plain hot streak (4 of last 5) isn't a move: most decent teams have one in November
             continue
         if hot and up: label = "Real shift"
         elif hot and (t.get("efg_move") or 0) >= 0.75: label = "Hot streak (shooting)"
@@ -987,7 +1037,7 @@ def main():
         except Exception:
             pool_state = {}
         try:
-            crit = critters(T, pool_state)
+            crit = critters(T, G, pool_state)
         except Exception as e:
             status["critters"] = f"failed: {e}"
         try:
