@@ -140,6 +140,14 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .nextg{margin-top:6px;font:600 13px Barlow,sans-serif;padding:5px 11px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent)}
 .game.hl{box-shadow:0 0 0 3px var(--accent);transition:box-shadow .3s}
 .early .ic{opacity:.55}
+.ic,.tc-head .big{position:relative}
+.xo{position:absolute;left:4%;top:4%;width:92%;height:92%;pointer-events:none;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.6))}
+.early .ic .xo{opacity:1}
+.nbrow{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.nbbtn{font:600 13px Barlow,sans-serif;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted)}
+.nbbtn.on{border-color:#e0453a;color:#e0453a;font-weight:700}
+.nbnote{flex:1;min-width:8em;font:500 14px Barlow,sans-serif;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.streaky .bar i,.pill.streaky .bar i{opacity:.4}
 .sec{font:700 14px "Barlow Condensed",sans-serif;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:14px 0 2px}
 </style>
 </head>
@@ -275,7 +283,7 @@ function creature(t, flip){
   // speed lines (fast break)
   if (t.fb > 0.55){ const k = Math.round((t.fb - 0.5) * 10); for (let i = 0; i < k; i++){ const y = cy - 40 + i * 22; s += `<path d="M${cx - R - 14 - i % 2 * 10} ${y} h-${30 + rnd() * 25}" stroke="${dark}" stroke-width="4" stroke-linecap="round" opacity=".45"/>`; } }
   // horns (losing the glass)
-  if (t.reb < 0.42){ const h = (0.42 - t.reb) / 0.42, w = 6 + 9 * h;
+  if (t.reb < 0.42 && t.sp !== "Rat"){ const h = (0.42 - t.reb) / 0.42, w = 6 + 9 * h;
     [-1, 1].forEach(d => { s += `<path d="M${cx + d * 30} ${cy - R + 18} C ${cx + d * (60 + 40 * h)} ${cy - R - 40 * h - 20}, ${cx + d * (110 + 30 * h)} ${cy - R + 10}, ${cx + d * (86 + 20 * h)} ${cy - R + 40 + 20 * h}" fill="none" stroke="#cdbf9f" stroke-width="${w}" stroke-linecap="round"/>`; }); }
   // ears (A/TO)
   const e = 1 - t.ato, eh = lerp(34, 130, Math.pow(e, 1.6)), rabbit = e > 0.6;
@@ -347,7 +355,11 @@ species = t => ART[t.sp] || t.sp;   /* species come from the daily data job */
 
 const $ = id => document.getElementById(id);
 const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
-let S = null, TM = {}, L = null, MV = null, view = "up", teamOrder = "best";
+let S = null, TM = {}, L = null, MV = null, view = "up", teamOrder = "best", LG3 = 0.33;
+/* manual no-bet marks: stay until you clear them (saved in this browser) */
+let NOBET = {}; try{ NOBET = JSON.parse(localStorage.getItem("critterNoBet")) || {}; }catch(e){}
+const saveNoBet = () => { try{ localStorage.setItem("critterNoBet", JSON.stringify(NOBET)); }catch(e){} };
+const XO = id => NOBET[id] ? `<svg class="xo" viewBox="0 0 10 10" aria-label="No bet"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="#e0453a" stroke-width="1.3" stroke-linecap="round"/></svg>` : "";
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
 const short = id => (TM[id] && TM[id].short) || "";
 const nm = (id, g) => TM[id] ? TM[id].short : (g.home === id ? g.home_name : g.away_name);
@@ -365,7 +377,7 @@ function icon(id, flip){
   if(!t) return `<div class="ic">${blobSvg("#9a9387")}</div>`;
   const c = t.critter;
   const svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color);
-  return `<div title="${sizeTip(c)}"${c && c.early ? ` class="early"` : ""}><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div></div>`;
+  return `<div title="${NOBET[id] ? "No bet" + (NOBET[id].note ? ": " + NOBET[id].note : "") : sizeTip(c)}"${c && c.early ? ` class="early"` : ""}><div class="ic">${svg}${XO(id)}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div></div>`;
 }
 /* ---------- apex traits: dots, rose chart, team cards ---------- */
 const TRAITS = [["runs", "Runs 12+", "#dc2626"], ["paint", "Paint edge", "#ea580c"], ["rim", "Rim attacks", "#ca8a04"],
@@ -383,7 +395,7 @@ function critterBlock(id, flip){
   if(!t) return `<div class="cb"><div class="ic">${blobSvg("#9a9387")}</div></div>`;
   const c = t.critter, svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color);
   const rk = t.apex && t.apex.rank ? `<span class="rk">#${t.apex.rank}</span> ` : "";
-  return `<div class="cb${c && c.early ? " early" : ""}" title="${sizeTip(c)}"><div class="ic">${svg}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div>${dots(t)}<div class="mini">${rk}A/TO ${atoTxt(t.ato)}</div></div>`;
+  return `<div class="cb${c && c.early ? " early" : ""}" title="${NOBET[id] ? "No bet" + (NOBET[id].note ? ": " + NOBET[id].note : "") : sizeTip(c)}"><div class="ic">${svg}${XO(id)}</div><div class="sp">${c ? c.sp : "Blob"}${c && c.early ? " ·early" : ""}</div>${dots(t)}<div class="mini">${rk}A/TO ${atoTxt(t.ato)}</div></div>`;
 }
 function rose(t, big){
   const a = t && t.apex, R = 100, r0 = 14, W = big ? 172 : 104;
@@ -413,8 +425,9 @@ function traitTable(t){
     return `<span class="sw" style="background:${col}"></span><span>${x.apex ? "<b>" + label + " ✓</b>" : label}</span><span>${ord(Math.round(x.pct * 100))}</span><span>${x.hit} of ${x.n}${x.top_n ? ` · ${x.top_hit}/${x.top_n} vs top half` : ""}</span>`; }).join("")}</div>
     <div class="lc">Petal length = percentile. Shading = how many games it showed up (games vs bottom-25% teams count half). Dashed line = apex level.</div>`;
 }
+const streaky = (t, p) => t && t.steady && t.steady[p] != null && t.steady[p] < 0.5;
 function pillarRows(t){
-  return PIL.map(p => `<div class="pill" style="grid-template-columns:7.5em 1fr 3em"><span>${p}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span class="gap">${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("");
+  return PIL.map(p => `<div class="pill${streaky(t, p) ? " streaky" : ""}" style="grid-template-columns:7.5em 1fr 3em"><span>${p}${streaky(t, p) ? " ~" : ""}</span><div class="bar"><em></em>${t.pillars[p] == null ? "" : `<i style="background:var(--fav);left:${t.pillars[p] < 0 ? 50 + Math.max(-2.5, t.pillars[p]) / 5 * 100 : 50}%;width:${Math.min(2.5, Math.abs(t.pillars[p])) / 5 * 100}%"></i>`}</div><span class="gap">${t.pillars[p] == null ? "–" : t.pillars[p].toFixed(1)}</span></div>`).join("");
 }
 function injList(t){
   return (t.injuries || []).map(i => `<div class="lc">🩹 ${i.player}${i.ppg != null ? ` (${i.ppg} ppg${i.rank ? `, #${i.rank}` : ""})` : ""}: ${i.status}${i.injury ? ", " + i.injury : ""}${i.carried ? ", from the last run (source page failed)" : i.fresh && (i.status === "Out" || i.status === "Doubtful") ? ", new absence" : i.long ? ", long-term" : i.missed ? ", already missing games" : ""}</div>`).join("") || `<div class="lc">No injuries listed.</div>`;
@@ -423,9 +436,13 @@ function teamCard(id, flip, withNext){
   const t = TM[id]; if(!t) return `<div class="empty">No data for this team yet.</div>`;
   const c = t.critter, svg = c ? sized(creature({n: t.name, col: t.color, ...c}, flip), c) : blobSvg(t.color), a = t.apex;
   const fin = t.fin_n ? `${Math.round(t.fin * 100)}% of ${t.fin_n}` : "–";
-  return `<div class="tc-head"><div class="big">${svg}</div><div><div class="tc-name">${t.name}</div>
+  const hu = c && c.hunt, nb = NOBET[id];
+  return `<div class="tc-head"><div class="big">${svg}${XO(id)}</div><div><div class="tc-name">${t.name}</div>
       <div class="lc">${a && a.rank ? `<span class="rk">#${a.rank} of ${a.of}</span> · ` : ""}${c ? c.sp : "Blob"} · ${t.record}${a ? ` · ${a.core}/6 apex` : ""}</div>${c && c.size ? `<div class="lc">Size ${c.size} of 5${c.size_why ? `: ${c.size_why}` : ""}</div>` : ""}
-      <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}${withNext ? nextBtn(id) : ""}</div></div>
+      ${c && c.held ? `<div class="lc">Not a predator yet: ${c.held}</div>` : ""}
+      ${hu && hu.weak_n ? `<div class="lc">Hunting: ${hu.hunted} of ${hu.weak_n} weak teams beaten by 15+${hu.net ? ` · <b style="color:var(--bad)">played down: ${hu.downs.slice(-hu.net).join(", ")}</b>` : ""}</div>` : ""}
+      <div class="lc">${t.stage === "scored" ? "5+ games" : t.stage === "early" ? "Early: 2 to 4 games" : "Too early to rate"}</div>${dots(t)}${withNext ? nextBtn(id) : ""}
+      <div class="nbrow"><button class="nbbtn${nb ? " on" : ""}" data-nobet="${id}">${nb ? "✕ No bet (tap to clear)" : "Mark no bet"}</button>${nb ? `<input class="nbnote" data-nbnote="${id}" value="${(nb.note || "").replace(/"/g, "&quot;")}" placeholder="Why? (optional)" maxlength="80">` : ""}</div></div></div>
     ${rose(t, true)}${traitTable(t)}
     <div class="nums"><div>A/TO<b>${atoTxt(t.ato)}</b></div><div>ORBTV / 100<b>${t.orbtv ?? "–"}</b></div><div>Avg margin<b>${t.margin ?? "–"}</b></div>
       <div>Last 5<b>${t.last5 || "–"}</b></div><div>Finisher<b style="font-size:14px">${fin}</b></div><div>Shooting (eFG z)<b>${t.efg_z ?? "–"}</b></div></div>
@@ -452,6 +469,18 @@ function openPanels(title, panels){
   try{ history.pushState({ov: 1}, ""); }catch(e){}
   $("ovx").focus();
 }
+/* redraw the board and any open swipe cards after a no-bet change */
+function refreshAll(){
+  render();
+  if($("ov").hidden || !OPEN_G) return;
+  const g = gameById(OPEN_G); if(!g) return;
+  const ps = g.fav ? [teamCard(g.fav, false), teamCard(g.dog, true), h2hCard(g)] : [teamCard(g.away, false), teamCard(g.home, true)];
+  const tr = $("ovtrack"), x = tr.scrollLeft;
+  [...tr.children].forEach((sec, i) => { if(ps[i]) sec.firstElementChild.innerHTML = ps[i]; });
+  tr.scrollLeft = x;
+}
+document.addEventListener("change", e => { const n = e.target.closest("[data-nbnote]"); if(n && NOBET[n.dataset.nbnote]){ NOBET[n.dataset.nbnote].note = n.value.trim(); saveNoBet(); pushNoBet(n.dataset.nbnote); } });
+let OPEN_G = null;
 function closePanels(fromPop){
   if($("ov").hidden) return;
   $("ov").hidden = true; document.body.style.overflow = "";
@@ -459,6 +488,7 @@ function closePanels(fromPop){
 }
 function openGame(gid){
   const g = gameById(gid); if(!g) return;
+  OPEN_G = gid;
   if(!g.fav) return openPanels(`${g.away_name} at ${g.home_name}`, [teamCard(g.away, false), teamCard(g.home, true)]);
   openPanels(`${nm(g.fav, g)} -${g.line} ${venue(g).replace(/<span class="where">.*?<\/span>/, "").trim()}`, [teamCard(g.fav, false), teamCard(g.dog, true), h2hCard(g)]);
 }
@@ -491,9 +521,15 @@ function analyze(g){
   const sf = stageOf(g.fav), sd = stageOf(g.dog);
   r.level = sf === "scored" && sd === "scored" ? "scored" : (sf !== "too early" && sd !== "too early") ? "early" : "too early";
   if(r.level !== "too early"){
-    r.tier = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && F.pillars[p] - D.pillars[p] >= 0.5).length;
+    r.tier = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && F.pillars[p] - D.pillars[p] >= 0.5 && !streaky(F, p)).length;   // a streaky favorite edge doesn't count
     r.preyEdges = PIL.filter(p => F.pillars[p] != null && D.pillars[p] != null && D.pillars[p] - F.pillars[p] >= 0.5).length;
   }
+  [g.fav, g.dog].forEach(t => NOBET[t] && r.flags.unshift(["bad", `No bet: you marked ${short(t)}${NOBET[t].note ? ` (${NOBET[t].note})` : ""}`]));
+  const huF = ((F && F.critter) || {}).hunt;
+  if(huF && huF.net) r.flags.push(["warn", `${short(g.fav)} played down${huF.net >= 2 ? " twice" : ""}: ${huF.downs.slice(-huF.net).join(", ")}`]);
+  const p3 = x => (x * 100).toFixed(0) + "%";
+  if(F && F.opp3 != null && F.opp3a >= 60 && F.opp3 <= LG3 - 0.06) r.flags.push(["warn", `Lucky defense: ${short(g.fav)}'s opponents shoot ${p3(F.opp3)} from three (D1 ${p3(LG3)}), likely to regress`]);
+  if(D && D.own3 != null && D.own3a >= 60 && D.own3 <= LG3 - 0.06) r.flags.push(["info", `Cold dog: ${short(g.dog)} shoots ${p3(D.own3)} from three (D1 ${p3(LG3)}), due to bounce back`]);
   // injuries work from day one
   keyOut(g.dog).forEach(i => r.flags.push(["bet", `Wounded prey: ${short(g.dog)} without ${i.player} (${i.ppg} ppg${i.status === "Doubtful" ? ", doubtful" : ""})`]));
   keyOut(g.fav).forEach(i => r.flags.push(["bad", `Favorite wounded: ${i.player} ${i.status.toLowerCase()} (${i.ppg} ppg)`]));
@@ -512,11 +548,11 @@ function bars(g){
   const b = (v, col) => { if(v == null) return `<div class="bar"><em></em></div>`; const x = Math.max(-2.5, Math.min(2.5, v)) / 5;
     return `<div class="bar"><em></em><i style="background:${col};left:${x < 0 ? (50 + x * 100) : 50}%;width:${Math.abs(x) * 100}%"></i></div>`; };
   const gap = p => { if(F.pillars[p] == null || D.pillars[p] == null) return `<span class="gap">–</span>`;
-    const d = F.pillars[p] - D.pillars[p], col = d >= 0.5 ? "var(--fav)" : d <= -0.5 ? "var(--dog)" : "var(--muted)";
+    const d = F.pillars[p] - D.pillars[p], col = d >= 0.5 && !streaky(F, p) ? "var(--fav)" : d <= -0.5 ? "var(--dog)" : "var(--muted)";
     return `<span class="gap" style="color:${col};font-weight:${Math.abs(d) >= 0.5 ? 700 : 400}">${d >= 0 ? "+" : "−"}${Math.abs(d).toFixed(1)}</span>`; };
   return `<div class="pill"><span></span><span style="color:var(--fav)">${F.short}</span><span style="color:var(--dog)">${D.short}</span><span class="gap">gap</span></div>` +
-    PIL.map(p => `<div class="pill"><span>${p}</span>${b(F.pillars[p], "var(--fav)")}${b(D.pillars[p], "var(--dog)")}${gap(p)}</div>`).join("") +
-    `<div class="lc">Gap = favorite minus underdog. Blue counts toward the favorite's tier, orange is a real underdog edge, gray is too small to count.</div>` +
+    PIL.map(p => `<div class="pill"><span>${p}${streaky(F, p) || streaky(D, p) ? " ~" : ""}</span><span class="${streaky(F, p) ? "streaky" : ""}">${b(F.pillars[p], "var(--fav)")}</span><span class="${streaky(D, p) ? "streaky" : ""}">${b(D.pillars[p], "var(--dog)")}</span>${gap(p)}</div>`).join("") +
+    `<div class="lc">Gap = favorite minus underdog. Blue counts toward the favorite's tier, orange is a real underdog edge, gray doesn't count. A faded bar (~) is streaky: above average in under half the team's games, so it can't count toward the tier.</div>` +
     `<div class="lc">Records ${F.record} vs ${D.record} · ORBTV/100 ${F.orbtv} vs ${D.orbtv} · A/TO ${F.ato} vs ${D.ato}</div>`;
 }
 /* ---------- pick log (Google Sheet) ---------- */
@@ -525,8 +561,23 @@ try{ LOG.url = localStorage.getItem("critterLogUrl") || ""; }catch(e){}
 async function loadLog(){
   if(!LOG.url){ LOG.loaded = true; return; }
   try{ const j = await (await fetch(LOG.url + (LOG.url.includes("?") ? "&" : "?") + "t=" + Date.now())).json();
-    LOG.rows = j.rows || []; LOG.error = ""; }catch(e){ LOG.error = "Couldn't reach your pick sheet. Check the link in Bet Mode."; }
+    LOG.rows = j.rows || []; LOG.error = "";
+    if(j.nobet) syncNoBet(j.nobet);
+  }catch(e){ LOG.error = "Couldn't reach your pick sheet. Check the link in Bet Mode."; }
   LOG.loaded = true;
+}
+/* the sheet's "No bet" tab is the master list. A mark made on this device before syncing gets sent up;
+   a mark that was synced but is gone from the sheet was cleared somewhere else, so it goes here too. */
+function syncNoBet(remote){
+  const next = {};
+  Object.entries(remote).forEach(([id, r]) => next[id] = {date: r.date || "", note: r.note || "", synced: true});
+  Object.entries(NOBET).forEach(([id, r]) => { if(!next[id] && !r.synced){ next[id] = r; pushNoBet(id); } });
+  NOBET = next; saveNoBet();
+}
+function pushNoBet(id){
+  if(!LOG.url) return;
+  const r = NOBET[id], body = r ? {action: "nobet_set", team_id: id, team: (TM[id] || {}).name || "", note: r.note || "", date: r.date} : {action: "nobet_clear", team_id: id};
+  postLog(body).then(x => { if(x && x.ok && NOBET[id]){ NOBET[id].synced = true; saveNoBet(); } }).catch(() => {});
 }
 async function postLog(body){ const r = await fetch(LOG.url, {method: "POST", body: JSON.stringify(body)}); return r.json(); }
 const pickOf = gid => LOG.rows.filter(r => String(r.game_id) === String(gid)).slice(-1)[0];
@@ -624,6 +675,7 @@ const SIDE_FIELDS = [
 const hasFlag = (g, s) => analyze(g).flags.some(([, x]) => x.startsWith(s));
 const GAME_FIELDS = [
   ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav]]],
+  ["nobet", "No-bet teams", [["Any"], ["Skip games with one", g => !NOBET[g.home] && !NOBET[g.away]], ["Only games with one", g => !!(NOBET[g.home] || NOBET[g.away])]]],
   ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral]]],
   ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["System flip", g => hasFlag(g, "System flip")],
                     ["Dog wins the glass", g => hasFlag(g, "Dog wins the glass")], ["Edge is mostly shooting", g => hasFlag(g, "Edge is mostly shooting")]]],
@@ -775,6 +827,10 @@ function render(){
 }
 document.addEventListener("click", e => {
   const nx = e.target.closest("[data-next]"); if(nx){ goNext(nx.dataset.next); return; }
+  const nb = e.target.closest("[data-nobet]");
+  if(nb){ const id = nb.dataset.nobet;
+    if(NOBET[id]) delete NOBET[id]; else NOBET[id] = {date: new Date().toISOString().slice(0, 10), note: ""};
+    saveNoBet(); pushNoBet(id); refreshAll(); return; }
   if(e.target.closest("button,input,a,summary,details,select")) return;
   const o = e.target.closest("[data-open]"); if(o) openGame(o.dataset.open);
 });
@@ -817,7 +873,7 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
     let s, t, l;
     try{ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(load)); }
     catch(e){ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json()))); }
-    S = s; TM = t.teams || {}; L = l;
+    S = s; TM = t.teams || {}; L = l; LG3 = t.lg3 || 0.33;
     try{ MV = await load("movers"); }catch(e){ MV = null; }
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
     $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
