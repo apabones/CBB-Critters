@@ -543,6 +543,10 @@ function analyze(g){
   if(r.level !== "too early"){
     const su = steadyCount(D, 1), fu = steadyCount(F, 1);
     if(su != null && fu != null && su > fu) r.flags.push(["info", `Steadier dog: ${short(g.dog)} has ${su} steady positive pillar${su > 1 ? "s" : ""} to ${short(g.fav)}'s ${fu} (dogs like this covered about 53% over two seasons, mostly in 2025-26: a weak lean)`]);
+    // tested on both seasons: a steady road favorite vs a steadily bad home dog, 6 to 19 points
+    const fu3 = steadyCount(F, 1), dd3 = steadyCount(D, -1);
+    if(!g.neutral && g.fav === g.away && g.line >= 6 && g.line <= 19 && fu3 >= 3 && dd3 >= 3)
+      r.flags.push(["bet", `Road pillar mismatch: ${short(g.fav)} (${fu3} steady positive pillars) on the road at ${short(g.dog)} (${dd3} steady negative). Road favorites like this at 6 to 19 covered about 59% over two seasons (119 of 202). A lean to log`]);
     // tested on both seasons: elite pressure + rebounding favorite vs a very sloppy dog
     const fp = F.pillars || {}, dp = D.pillars || {};
     if(fp["Pressure"] != null && fp["Pressure"] >= 1 && fp["Glass"] != null && fp["Glass"] > 0 && dp["Ball Security"] != null && dp["Ball Security"] <= -1)
@@ -697,10 +701,10 @@ const steadyCount = (t, dir) => !t.steady || t.stage === "too early" ? null : PI
   (dir > 0 ? t.pillars[p] > 0 && t.steady[p] >= 0.5 : t.pillars[p] < 0 && t.steady[p] <= 0.5)).length;
 const hasFlag = (g, s) => analyze(g).flags.some(([, x]) => x.startsWith(s));
 const GAME_FIELDS = [
-  ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav]]],
+  ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav], ["5 to 10", g => g.fav && g.line >= 5 && g.line < 10], ["5 to 15", g => g.fav && g.line >= 5 && g.line < 15], ["5 to 20", g => g.fav && g.line >= 5 && g.line < 20]]],
   ["nobet", "No-bet teams", [["Any"], ["Skip games with one", g => !NOBET[g.home] && !NOBET[g.away]], ["Only games with one", g => !!(NOBET[g.home] || NOBET[g.away])]]],
-  ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral]]],
-  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["System flip", g => hasFlag(g, "System flip")],
+  ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral], ["Favorite at home", g => g.fav && !g.neutral && g.fav === g.home], ["Favorite on the road", g => g.fav && !g.neutral && g.fav === g.away]]],
+  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["Road pillar mismatch", g => hasFlag(g, "Road pillar mismatch")], ["System flip", g => hasFlag(g, "System flip")],
                     ["Dog wins the glass", g => hasFlag(g, "Dog wins the glass")], ["Edge is mostly shooting", g => hasFlag(g, "Edge is mostly shooting")]]],
 ];
 const store = {get: (k, d) => { try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } }, set: (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }};
