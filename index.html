@@ -140,6 +140,12 @@ summary{font-size:13px;color:var(--accent);cursor:pointer}
 .nextg{margin-top:6px;font:600 13px Barlow,sans-serif;padding:5px 11px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent)}
 .game.hl{box-shadow:0 0 0 3px var(--accent);transition:box-shadow .3s}
 .early .ic{opacity:.55}
+.passrow{display:flex;justify-content:flex-end;margin-top:6px}
+.passbtn{font:600 12px Barlow,sans-serif;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted)}
+.passbtn.on{border-color:var(--accent);color:var(--accent)}
+.passline{margin:0 0 6px}
+.tip{font:600 13px Barlow,sans-serif;color:var(--muted);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.tip.soon{color:var(--accent)}.tip.gone{color:var(--bad)}
 .ic,.tc-head .big{position:relative}
 .xo{position:absolute;left:4%;top:4%;width:92%;height:92%;pointer-events:none;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.6))}
 .early .ic .xo{opacity:1}
@@ -358,6 +364,9 @@ const PIL = ["Ball Security", "Pressure", "Glass", "Inside Attack"];
 let S = null, TM = {}, L = null, MV = null, view = "up", teamOrder = "best", LG3 = 0.33;
 /* manual no-bet marks: stay until you clear them (saved in this browser) */
 let NOBET = {}; try{ NOBET = JSON.parse(localStorage.getItem("critterNoBet")) || {}; }catch(e){}
+/* passed games: hidden from Upcoming until the game is over, unless you bring them back */
+let PASSED = {}, SHOWPASSED = false; try{ PASSED = JSON.parse(localStorage.getItem("critterPassed")) || {}; }catch(e){}
+const savePassed = () => { try{ localStorage.setItem("critterPassed", JSON.stringify(PASSED)); }catch(e){} };
 const saveNoBet = () => { try{ localStorage.setItem("critterNoBet", JSON.stringify(NOBET)); }catch(e){} };
 const XO = id => NOBET[id] ? `<svg class="xo" viewBox="0 0 10 10" aria-label="No bet"><path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="#e0453a" stroke-width="1.3" stroke-linecap="round"/></svg>` : "";
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
@@ -722,7 +731,7 @@ function scanPanel(){
   </details>`;
 }
 function nextGame(id){
-  return S ? S.games.filter(g => g.state !== "post" && (g.home === id || g.away === id)).sort((x, y) => String(x.start || x.day).localeCompare(String(y.start || y.day)))[0] : null;
+  return S ? S.games.filter(g => !started(g) && (g.home === id || g.away === id)).sort((x, y) => String(x.start || x.day).localeCompare(String(y.start || y.day)))[0] : null;
 }
 function nextBtn(id){
   const g = nextGame(id); if(!g) return `<div class="lc">No game in the next 3 days.</div>`;
@@ -739,6 +748,23 @@ function goNext(id){
   render();
   const el = $("g-" + g.id);
   if(el){ el.scrollIntoView({block: "center"}); el.classList.add("hl"); setTimeout(() => el.classList.remove("hl"), 2400); }
+}
+/* tip time from the schedule, checked against this phone's clock (the data only refreshes 3 times a day) */
+const startMs = g => g.start ? Date.parse(g.start) : NaN;
+const started = g => g.state !== "pre" || startMs(g) <= Date.now();
+let SHOWSTARTED = false, DRAW_UP = null;
+setInterval(() => { if(view === "up" && DRAW_UP && !document.hidden && $("ul")) DRAW_UP(); }, 60000);
+function tipLine(g){
+  const t = startMs(g); if(isNaN(t)) return "";
+  const when = new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}), mins = Math.round((t - Date.now()) / 60000);
+  const rel = g.state === "post" ? "final" : mins <= 0 ? `started ${-mins < 60 ? -mins + "m" : Math.floor(-mins / 60) + "h " + (-mins % 60) + "m"} ago` :
+    mins < 60 ? `in ${mins}m` : mins < 24 * 60 ? `in ${Math.floor(mins / 60)}h ${mins % 60}m` : "";
+  return `<div class="tip${mins <= 0 || g.state !== "pre" ? " gone" : mins <= 60 ? " soon" : ""}">${when}${rel ? ` · ${rel}` : ""}</div>`;
+}
+function passable(html, g){
+  const on = !!PASSED[g.id];
+  html = html.replace(/(<div class="game[^>]*>)/, `$1${tipLine(g)}`);
+  return html.replace(/<\/div>\s*$/, `<div class="passrow"><button class="passbtn${on ? " on" : ""}" data-pass="${g.id}">${on ? "Passed · bring back" : "Pass on this game"}</button></div></div>`);
 }
 function card(g){
   const a = analyze(g);
@@ -769,17 +795,20 @@ function render(){
   const games = S.games.filter(g => g.state !== "post" && (!g.day || g.day === S.date));
   const all = S.games.filter(g => g.state !== "post");
   if(view === "up"){
-    v.innerHTML = `<div id="scanwrap">${scanPanel()}</div><div id="scaninfo"></div><input class="search" id="uq" placeholder="Find a team's next game" autocomplete="off"><div id="ul"></div>`;
+    v.innerHTML = `<div id="scanwrap">${scanPanel()}</div><div id="scaninfo"></div><div id="passinfo"></div><input class="search" id="uq" placeholder="Find a team's next game" autocomplete="off"><div id="ul"></div>`;
     const draw = () => { const q = $("uq").value.trim().toLowerCase(), on = scanCount(SCAN) > 0;
       const days = [...new Set(all.map(g => g.day))].sort();
       let shown = 0;
       $("ul").innerHTML = days.map(d => { let gs = sortGames(all.filter(g => g.day === d));
-        gs = gs.filter(g => g.id === PIN || ((!q || (g.home_name + " " + g.away_name).toLowerCase().includes(q)) && (!on || scanMatch(g))));
+        gs = gs.filter(g => g.id === PIN || ((!q || (g.home_name + " " + g.away_name).toLowerCase().includes(q)) && (!on || scanMatch(g)) && (SHOWPASSED || !PASSED[g.id]) && (SHOWSTARTED || !started(g))));
         if(!gs.length) return "";
         shown += gs.length;
         const lab = new Date(d + "T12:00:00").toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"});
-        return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(card).join(""); }).join("") ||
+        return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(g => passable(card(g), g)).join(""); }).join("") ||
         `<div class="empty">${on ? "No games match this scan in the next 3 days." : `No games in the next 3 days${q ? " for that team" : ""}.`}</div>`;
+      const np = all.filter(g => PASSED[g.id] && !started(g)).length, ns = all.filter(started).length;
+      $("passinfo").innerHTML = (ns ? `<div class="lc passline">${ns} game${ns > 1 ? "s" : ""} already started ${SHOWSTARTED ? "shown" : "hidden"} · <button class="link" data-showstarted="1">${SHOWSTARTED ? "hide them" : "show them"}</button></div>` : "") +
+        (np ? `<div class="lc passline">${np} passed game${np > 1 ? "s" : ""} ${SHOWPASSED ? "shown" : "hidden"} · <button class="link" data-showpassed="1">${SHOWPASSED ? "hide them" : "show them"}</button></div>` : "");
       $("scaninfo").innerHTML = on ? `<div class="banner scanon"><span>Scanner on: <b>${shown - (PIN && !scanMatch(gameById(PIN)) ? 1 : 0)} of ${all.length}</b> games match${SCAN.name ? ` "${SCAN.name}"` : ""}</span><button class="link" data-scanclear="1">Clear</button></div>` : "";
     };
     const wire = () => {
@@ -793,6 +822,11 @@ function render(){
     const changed = rebuild => { store.set("critterScanNow", SCAN); if(rebuild) wire();
       const sm = document.querySelector("#scanbox summary"), n = scanCount(SCAN); if(sm) sm.innerHTML = `Scanner${n ? ` · <b>${n} filter${n > 1 ? "s" : ""} on</b>` : ""}`; draw(); };
     $("view").onclick = e => {
+      const ps = e.target.closest("[data-pass],[data-showpassed],[data-showstarted]");
+      if(ps){ if(ps.dataset.showstarted){ SHOWSTARTED = !SHOWSTARTED; }
+        else if(ps.dataset.pass){ const id = ps.dataset.pass; if(PASSED[id]) delete PASSED[id]; else PASSED[id] = new Date().toISOString().slice(0, 10); savePassed(); }
+        else SHOWPASSED = !SHOWPASSED;
+        PIN = null; draw(); return; }
       const b = e.target.closest("[data-scanmode],[data-scanload],[data-scandel],[data-scansave],[data-scanclear]"); if(!b) return;
       if(b.dataset.scanmode){ SCAN.mode = b.dataset.scanmode; delete SCAN.name; PIN = null; changed(true); }
       else if(b.dataset.scanload){ const sv = SAVED[b.dataset.scanload]; if(sv){ SCAN = Object.assign({}, JSON.parse(JSON.stringify(sv)), {open: true, name: b.dataset.scanload}); PIN = null; changed(true); } }
@@ -804,7 +838,8 @@ function render(){
     $("uq").insertAdjacentHTML("beforebegin", `<div class="legend">Sorted by pillar dominance (favorite ahead by 0.5+ in each of 4 pillars), then fewest underdog edges, then spread. Faded cards are early: fewer than 5 games for one team.<br>
       Apex dots, in order: ${TRAITS.map(([, l, c]) => `<b style="color:${c}">${l}</b>`).join(" · ")}. Filled = apex level. <b>Tap a matchup</b> for full team cards, then swipe.<br>
       Food chain: predators ${PRED.join(" < ")}; prey ${PREY.join(" < ")}. Size = the toughest level of team it has proven itself against: predators by beating them, prey by leading or tied at halftime.</div>`);
-    $("uq").addEventListener("input", () => { PIN = null; draw(); }); wire(); draw(); return;
+    $("uq").addEventListener("input", () => { PIN = null; draw(); }); wire(); draw();
+    DRAW_UP = draw; return;
   }
   $("view").onclick = null;
   if(view === "bet"){
@@ -885,6 +920,8 @@ document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { view = b.
     try{ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(load)); }
     catch(e){ [s, t, l] = await Promise.all(["slate", "teams", "latest"].map(f => fetch(`data/${f}.json`, {cache: "no-store"}).then(r => r.json()))); }
     S = s; TM = t.teams || {}; L = l; LG3 = t.lg3 || 0.33;
+    const live = new Set(S.games.filter(g => g.state !== "post").map(g => String(g.id)));
+    Object.keys(PASSED).forEach(id => { if(!live.has(id)) delete PASSED[id]; }); savePassed();
     try{ MV = await load("movers"); }catch(e){ MV = null; }
     const n = Object.values(TM).filter(x => x.stage === "scored").length;
     $("sub").textContent = `${S.date} · ${S.games.filter(g => !g.day || g.day === S.date).length} games today · ${n} teams with 5+ games`;
