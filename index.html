@@ -542,7 +542,11 @@ function analyze(g){
   if(D && D.own3 != null && D.own3a >= 60 && D.own3 <= de - 0.06) r.flags.push(["info", `Cold dog: ${short(g.dog)} shoots ${p3(D.own3)} from three; teams its level end up around ${p3(de)}`]);
   if(r.level !== "too early"){
     const su = steadyCount(D, 1), fu = steadyCount(F, 1);
-    if(su != null && fu != null && su > fu) r.flags.push(["bet", `Steadier dog: ${short(g.dog)} has ${su} steady positive pillar${su > 1 ? "s" : ""} to ${short(g.fav)}'s ${fu} (dogs like this covered about 54% over the last two seasons)`]);
+    if(su != null && fu != null && su > fu) r.flags.push(["info", `Steadier dog: ${short(g.dog)} has ${su} steady positive pillar${su > 1 ? "s" : ""} to ${short(g.fav)}'s ${fu} (dogs like this covered about 53% over two seasons, mostly in 2025-26: a weak lean)`]);
+    // tested on both seasons: elite pressure + rebounding favorite vs a very sloppy dog
+    const fp = F.pillars || {}, dp = D.pillars || {};
+    if(fp["Pressure"] != null && fp["Pressure"] >= 1 && fp["Glass"] != null && fp["Glass"] > 0 && dp["Ball Security"] != null && dp["Ball Security"] <= -1)
+      r.flags.push(["bet", `Pressure mismatch: ${short(g.fav)} presses (+${fp["Pressure"].toFixed(1)}) and wins the glass vs a sloppy ${short(g.dog)} (${dp["Ball Security"].toFixed(1)} Ball Security). Over two seasons, favorites like this ${g.line < 10 ? "with spreads under 10 won 31 of 36 and covered about 61%" : "covered about 55%"}. Small sample: a lean to log`]);
   }
   // injuries work from day one
   keyOut(g.dog).forEach(i => r.flags.push(["bet", `Wounded prey: ${short(g.dog)} without ${i.player} (${i.ppg} ppg${i.status === "Doubtful" ? ", doubtful" : ""})`]));
@@ -696,7 +700,7 @@ const GAME_FIELDS = [
   ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav]]],
   ["nobet", "No-bet teams", [["Any"], ["Skip games with one", g => !NOBET[g.home] && !NOBET[g.away]], ["Only games with one", g => !!(NOBET[g.home] || NOBET[g.away])]]],
   ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral]]],
-  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["System flip", g => hasFlag(g, "System flip")],
+  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["System flip", g => hasFlag(g, "System flip")],
                     ["Dog wins the glass", g => hasFlag(g, "Dog wins the glass")], ["Edge is mostly shooting", g => hasFlag(g, "Edge is mostly shooting")]]],
 ];
 const store = {get: (k, d) => { try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } }, set: (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }};
