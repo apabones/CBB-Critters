@@ -683,6 +683,10 @@ function renderRecord(v){
 const spOf = t => t && t.critter ? t.critter.sp : "Blob";
 const PIL_OPTS = [["Any"], ["Positive", v => v > 0], ["Negative", v => v < 0], ["Strong (+1 or more)", v => v >= 1], ["Weak (−1 or less)", v => v <= -1]];
 const TRAIT_OPTS = [["Any"], ["Apex level", x => x.apex], ["Above average", x => x.pct >= 0.5], ["Below average", x => x.pct < 0.5], ["Not apex", x => !x.apex]];
+/* apex traits above average (percentile 50th or better) or below it; and head-to-head trait edges, favorite above while the dog is below */
+const apexCount = (t, dir) => !t.apex ? null : TRAITS.filter(([k]) => t.apex.traits[k] && (dir > 0 ? t.apex.traits[k].pct >= 0.5 : t.apex.traits[k].pct < 0.5)).length;
+const traitEdges = g => { const F = g.fav && TM[g.fav], D = g.dog && TM[g.dog]; if(!F || !D || !F.apex || !D.apex) return null;
+  return TRAITS.filter(([k]) => F.apex.traits[k] && D.apex.traits[k] && F.apex.traits[k].pct >= 0.5 && D.apex.traits[k].pct < 0.5).length; };
 const SIDE_FIELDS = [
   ["ato", "A/TO", [["Any"], ["Over 1.0", v => v > 1], ["Over 1.25", v => v > 1.25], ["Over 1.5", v => v > 1.5], ["Under 1.0", v => v < 1]], t => t.ato],
   ...PIL.map(p => [p, p, PIL_OPTS, t => t.pillars[p]]),
@@ -693,6 +697,8 @@ const SIDE_FIELDS = [
                             ["3 or less (Wolf / Goat or smaller)", v => v <= 3], ["2 or less (Bobcat / Rabbit or smaller)", v => v <= 2]], t => t.critter && t.critter.sp !== "Blob" ? t.critter.size : null],
   ["rank", "Rank", [["Any"], ["Top 25", v => v <= 25], ["Top 50", v => v <= 50], ["Top 100", v => v <= 100], ["Outside top 100", v => v > 100]], t => t.apex && t.apex.rank],
   ["core", "Apex count", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["None", v => v === 0]], t => t.apex && t.apex.core],
+  ["aup", "Apex traits above average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, 1)],
+  ["adn", "Apex traits below average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, -1)],
   ["inj", "New injury", [["Any"], ["Yes (top-2 scorer out)", v => v], ["No", v => !v]], (t, id) => keyOut(id).length > 0],
   ...TRAITS.map(([k, l]) => ["t_" + k, l, TRAIT_OPTS, t => t.apex && t.apex.traits[k]]),
 ];
@@ -702,6 +708,7 @@ const steadyCount = (t, dir) => !t.steady || t.stage === "too early" ? null : PI
 const hasFlag = (g, s) => analyze(g).flags.some(([, x]) => x.startsWith(s));
 const GAME_FIELDS = [
   ["spread", "Spread", [["Any"], ["Under 5", g => g.fav && g.line < 5], ["Under 10", g => g.fav && g.line < 10], ["10 or more", g => g.fav && g.line >= 10], ["Has a line", g => !!g.fav], ["No line yet", g => !g.fav], ["5 to 10", g => g.fav && g.line >= 5 && g.line < 10], ["5 to 15", g => g.fav && g.line >= 5 && g.line < 15], ["5 to 20", g => g.fav && g.line >= 5 && g.line < 20]]],
+  ["tedge", "Trait edges (fav above, dog below)", [["Any"], ["2 or more", g => traitEdges(g) >= 2], ["3 or more", g => traitEdges(g) >= 3], ["4 or more", g => traitEdges(g) >= 4], ["5 or more", g => traitEdges(g) >= 5], ["All 6", g => traitEdges(g) >= 6], ["None", g => traitEdges(g) === 0]]],
   ["nobet", "No-bet teams", [["Any"], ["Skip games with one", g => !NOBET[g.home] && !NOBET[g.away]], ["Only games with one", g => !!(NOBET[g.home] || NOBET[g.away])]]],
   ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral], ["Favorite at home", g => g.fav && !g.neutral && g.fav === g.home], ["Favorite on the road", g => g.fav && !g.neutral && g.fav === g.away]]],
   ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["Road pillar mismatch", g => hasFlag(g, "Road pillar mismatch")], ["System flip", g => hasFlag(g, "System flip")],
