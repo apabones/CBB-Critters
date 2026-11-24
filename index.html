@@ -699,6 +699,9 @@ const SIDE_FIELDS = [
   ["core", "Apex count", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["None", v => v === 0]], t => t.apex && t.apex.core],
   ["aup", "Apex traits above average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, 1)],
   ["adn", "Apex traits below average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, -1)],
+  ["orb", "ORBTV (extra possessions)", [["Any"], ["Above average", t => t.porb >= 0.5], ["Below average", t => t.porb < 0.5], ["Top 30%", t => t.porb >= 0.7], ["Bottom 30%", t => t.porb <= 0.3], ["Positive", t => t.orbtv > 0], ["Negative", t => t.orbtv < 0]], t => t.porb == null ? null : t],
+  ["p3", "3P%", [["Any"], ["Top 30%", t => t.p3 >= 0.7], ["Above average", t => t.p3 >= 0.5], ["Below average", t => t.p3 < 0.5], ["Not top 30%", t => t.p3 < 0.7]], t => t.p3 == null ? null : t],
+  ["p3a", "Threes tried per game", [["Any"], ["Above average (top third)", t => t.p3a >= 2 / 3], ["Average (middle third)", t => t.p3a >= 1 / 3 && t.p3a < 2 / 3], ["Below average (bottom third)", t => t.p3a < 1 / 3]], t => t.p3a == null ? null : t],
   ["inj", "New injury", [["Any"], ["Yes (top-2 scorer out)", v => v], ["No", v => !v]], (t, id) => keyOut(id).length > 0],
   ...TRAITS.map(([k, l]) => ["t_" + k, l, TRAIT_OPTS, t => t.apex && t.apex.traits[k]]),
 ];
@@ -711,7 +714,7 @@ const GAME_FIELDS = [
   ["tedge", "Trait edges (fav above, dog below)", [["Any"], ["2 or more", g => traitEdges(g) >= 2], ["3 or more", g => traitEdges(g) >= 3], ["4 or more", g => traitEdges(g) >= 4], ["5 or more", g => traitEdges(g) >= 5], ["All 6", g => traitEdges(g) >= 6], ["None", g => traitEdges(g) === 0]]],
   ["nobet", "No-bet teams", [["Any"], ["Skip games with one", g => !NOBET[g.home] && !NOBET[g.away]], ["Only games with one", g => !!(NOBET[g.home] || NOBET[g.away])]]],
   ["site", "Site", [["Any"], ["Skip neutral", g => !g.neutral], ["Neutral only", g => g.neutral], ["Favorite at home", g => g.fav && !g.neutral && g.fav === g.home], ["Favorite on the road", g => g.fav && !g.neutral && g.fav === g.away]]],
-  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["Road pillar mismatch", g => hasFlag(g, "Road pillar mismatch")], ["System flip", g => hasFlag(g, "System flip")],
+  ["flag", "Flag", [["Any"], ["Wounded prey", g => hasFlag(g, "Wounded prey")], ["Favorite wounded", g => hasFlag(g, "Favorite wounded")], ["Steadier dog", g => hasFlag(g, "Steadier dog")], ["Cold dog", g => hasFlag(g, "Cold dog")], ["Pressure mismatch", g => hasFlag(g, "Pressure mismatch")], ["Road pillar mismatch", g => hasFlag(g, "Road pillar mismatch")], ["System flip", g => hasFlag(g, "System flip")],
                     ["Dog wins the glass", g => hasFlag(g, "Dog wins the glass")], ["Edge is mostly shooting", g => hasFlag(g, "Edge is mostly shooting")]]],
 ];
 const store = {get: (k, d) => { try{ return JSON.parse(localStorage.getItem(k)) ?? d; }catch(e){ return d; } }, set: (k, v) => { try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }};

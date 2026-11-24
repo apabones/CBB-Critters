@@ -74,6 +74,7 @@ METHOD = "2026-11-21"     # bump when the rating method changes, so Movers doesn
 SHRINK_K = 3              # an opponent with k other games gets half weight in the schedule adjustment
 ZERO_FLAGS = []           # box score values that look wrong, for a manual check
 POOL = {"min": 3, "n": 0}
+Q3 = [0.323, 0.340, 0.341, 0.354]   # 3P% by strength quarter, bottom to top, 2025-26 D1 vs D1
 
 
 def team_games(t, d1=None):
@@ -287,10 +288,22 @@ def team_table(G, meta):
     T["own3"], T["own3a"] = (t3._3m / t3._3a.where(t3._3a > 0)).round(3), t3._3a
     T["opp3"], T["opp3a"] = (t3._o3m / t3._o3a.where(t3._o3a > 0)).round(3), t3._o3a
     POOL["lg3"] = round(float(G._3m.sum() / max(1, G._3a.sum())), 3)
+    # percentiles for the scanner: 3P%, threes tried per game, and ORBTV (extra possessions), each against the scored pool
+    pl = T.games >= POOL["min"]
+    T["3pg"] = (T.own3a / T.games.where(T.games > 0)).round(1)
+    for c, k in [("own3", "p3"), ("3pg", "p3a"), ("ORBTV per 100", "porb")]:
+        T[k] = pct_vs(T.loc[pl, c], T[c]).round(3)
     T["eFG z"] = Z["eFG"].round(2)
     T["eFG move"] = (Z5["eFG"] - Z["eFG"]).round(2)
     T = T.join(meta)
     T["tier"] = T.conf.map(lambda c: TIERS.get(c, "Low") if not pd.isna(c) else "Low")
+    # three-point baselines by strength quarter (2025-26 full season): weak teams shoot worse, so judge luck against
+    # what teams at that level shoot, and a defense against what the teams it actually played normally shoot
+    sp = pct_vs(pool["Net per 100"], T["Net per 100"]).fillna(0.5)
+    qrate = sp.map(lambda x: Q3[min(3, int(x * 4))])
+    T["exp3"] = qrate.round(3)
+    o3 = G.assign(_r=G.opp.map(qrate)).dropna(subset=["_r", "_o3a"])
+    T["opp_exp3"] = ((o3._r * o3._o3a).groupby(o3.team).sum() / o3._o3a.groupby(o3.team).sum()).round(3)
     T["stage"] = T.games.apply(lambda n: "scored" if n >= SCORED else "early" if n >= PROVISIONAL else "too early")
     return T
 
@@ -1136,6 +1149,8 @@ def main():
                               steady={p: f(r.get(p + " steady"), 2) for p in PILLARS},
                               own3=f(r.get("own3"), 3), own3a=None if pd.isna(r.get("own3a")) else int(r["own3a"]),
                               opp3=f(r.get("opp3"), 3), opp3a=None if pd.isna(r.get("opp3a")) else int(r["opp3a"]),
+                              exp3=f(r.get("exp3"), 3), opp_exp3=f(r.get("opp_exp3"), 3),
+                              p3=f(r.get("p3"), 3), p3a=f(r.get("p3a"), 3), porb=f(r.get("porb"), 3), threes_pg=f(r.get("3pg"), 1),
                               species=c.get("sp", "Blob"), critter=c or None, apex=apx.get(tid))
         for tid, info in D1_INFO.items():
             if tid not in teams:
