@@ -687,6 +687,8 @@ const TRAIT_OPTS = [["Any"], ["Apex level", x => x.apex], ["Above average", x =>
 const apexCount = (t, dir) => !t.apex ? null : TRAITS.filter(([k]) => t.apex.traits[k] && (dir > 0 ? t.apex.traits[k].pct >= 0.5 : t.apex.traits[k].pct < 0.5)).length;
 const traitEdges = g => { const F = g.fav && TM[g.fav], D = g.dog && TM[g.dog]; if(!F || !D || !F.apex || !D.apex) return null;
   return TRAITS.filter(([k]) => F.apex.traits[k] && D.apex.traits[k] && F.apex.traits[k].pct >= 0.5 && D.apex.traits[k].pct < 0.5).length; };
+/* lowest ranked team on the board, so "bottom 25" means the 25 worst ranked teams */
+const rankMax = () => Math.max(0, ...Object.values(TM).map(t => (t.apex && t.apex.rank) || 0));
 const SIDE_FIELDS = [
   ["ato", "A/TO", [["Any"], ["Over 1.0", v => v > 1], ["Over 1.25", v => v > 1.25], ["Over 1.5", v => v > 1.5], ["Under 1.0", v => v < 1]], t => t.ato],
   ...PIL.map(p => [p, p, PIL_OPTS, t => t.pillars[p]]),
@@ -695,7 +697,7 @@ const SIDE_FIELDS = [
   ["sp", "Critter", [["Any"], ["Predator", v => PRED.includes(v)], ["Prey", v => PREY.includes(v)], ["Blob", v => v === "Blob"], ["Not prey", v => !PREY.includes(v)]], t => spOf(t)],
   ["size", "Critter size", [["Any"], ["3+ (Wolf / Goat or bigger)", v => v >= 3], ["4+ (Mountain lion / Elk or bigger)", v => v >= 4], ["5 (Tiger / Bison)", v => v >= 5],
                             ["3 or less (Wolf / Goat or smaller)", v => v <= 3], ["2 or less (Bobcat / Rabbit or smaller)", v => v <= 2]], t => t.critter && t.critter.sp !== "Blob" ? t.critter.size : null],
-  ["rank", "Rank", [["Any"], ["Top 25", v => v <= 25], ["Top 50", v => v <= 50], ["Top 100", v => v <= 100], ["Outside top 100", v => v > 100]], t => t.apex && t.apex.rank],
+  ["rank", "Rank", [["Any"], ["Top 25", v => v <= 25], ["Top 50", v => v <= 50], ["Top 100", v => v <= 100], ["Outside top 100", v => v > 100], ["Bottom 100", v => v > rankMax() - 100], ["Bottom 50", v => v > rankMax() - 50], ["Bottom 25", v => v > rankMax() - 25]], t => t.apex && t.apex.rank],
   ["core", "Apex count", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["None", v => v === 0]], t => t.apex && t.apex.core],
   ["aup", "Apex traits above average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, 1)],
   ["adn", "Apex traits below average", [["Any"], ["2 or more", v => v >= 2], ["3 or more", v => v >= 3], ["4 or more", v => v >= 4], ["5 or more", v => v >= 5], ["All 6", v => v >= 6], ["None", v => v === 0]], t => apexCount(t, -1)],
@@ -770,7 +772,7 @@ function goNext(id){
 /* tip time from the schedule, checked against this phone's clock (the data only refreshes 3 times a day) */
 const startMs = g => g.start ? Date.parse(g.start) : NaN;
 const started = g => g.state !== "pre" || startMs(g) <= Date.now();
-let SHOWSTARTED = false, DRAW_UP = null;
+let SHOWSTARTED = false, DRAW_UP = null, BYTIME = false; try{ BYTIME = localStorage.getItem("critterByTime") === "1"; }catch(e){}
 setInterval(() => { if(view === "up" && DRAW_UP && !document.hidden && $("ul")) DRAW_UP(); }, 60000);
 function tipLine(g){
   const t = startMs(g); if(isNaN(t)) return "";
@@ -804,6 +806,7 @@ function card(g){
    </details></div>`;
 }
 function sortGames(gs){
+  if(BYTIME) return [...gs].sort((x, y) => String(x.start || "9").localeCompare(String(y.start || "9")) || (x.home_name || "").localeCompare(y.home_name || ""));
   const rank = g => { const a = analyze(g); return [a.level === "scored" ? 0 : a.level === "early" ? 1 : 2, -(a.tier || 0), a.preyEdges || 0, g.line || 99]; };
   return [...gs].sort((x, y) => { const a = rank(x), b = rank(y); for(let i = 0; i < 4; i++) if(a[i] !== b[i]) return a[i] - b[i]; return 0; });
 }
@@ -825,7 +828,7 @@ function render(){
         return `<div class="day">${d === S.date ? "Today, " : ""}${lab}</div>` + gs.map(g => passable(card(g), g)).join(""); }).join("") ||
         `<div class="empty">${on ? "No games match this scan in the next 3 days." : `No games in the next 3 days${q ? " for that team" : ""}.`}</div>`;
       const np = all.filter(g => PASSED[g.id] && !started(g)).length, ns = all.filter(started).length;
-      $("passinfo").innerHTML = (ns ? `<div class="lc passline">${ns} game${ns > 1 ? "s" : ""} already started ${SHOWSTARTED ? "shown" : "hidden"} · <button class="link" data-showstarted="1">${SHOWSTARTED ? "hide them" : "show them"}</button></div>` : "") +
+      $("passinfo").innerHTML = `<div class="lc passline">Sorted by ${BYTIME ? "start time" : "best edge"} · <button class="link" data-bytime="1">${BYTIME ? "sort by best edge" : "sort by start time"}</button></div>` + (ns ? `<div class="lc passline">${ns} game${ns > 1 ? "s" : ""} already started ${SHOWSTARTED ? "shown" : "hidden"} · <button class="link" data-showstarted="1">${SHOWSTARTED ? "hide them" : "show them"}</button></div>` : "") +
         (np ? `<div class="lc passline">${np} passed game${np > 1 ? "s" : ""} ${SHOWPASSED ? "shown" : "hidden"} · <button class="link" data-showpassed="1">${SHOWPASSED ? "hide them" : "show them"}</button></div>` : "");
       $("scaninfo").innerHTML = on ? `<div class="banner scanon"><span>Scanner on: <b>${shown - (PIN && !scanMatch(gameById(PIN)) ? 1 : 0)} of ${all.length}</b> games match${SCAN.name ? ` "${SCAN.name}"` : ""}</span><button class="link" data-scanclear="1">Clear</button></div>` : "";
     };
@@ -840,8 +843,9 @@ function render(){
     const changed = rebuild => { store.set("critterScanNow", SCAN); if(rebuild) wire();
       const sm = document.querySelector("#scanbox summary"), n = scanCount(SCAN); if(sm) sm.innerHTML = `Scanner${n ? ` · <b>${n} filter${n > 1 ? "s" : ""} on</b>` : ""}`; draw(); };
     $("view").onclick = e => {
-      const ps = e.target.closest("[data-pass],[data-showpassed],[data-showstarted]");
-      if(ps){ if(ps.dataset.showstarted){ SHOWSTARTED = !SHOWSTARTED; }
+      const ps = e.target.closest("[data-pass],[data-showpassed],[data-showstarted],[data-bytime]");
+      if(ps){ if(ps.dataset.bytime){ BYTIME = !BYTIME; try{ localStorage.setItem("critterByTime", BYTIME ? "1" : "0"); }catch(e){} }
+        else if(ps.dataset.showstarted){ SHOWSTARTED = !SHOWSTARTED; }
         else if(ps.dataset.pass){ const id = ps.dataset.pass; if(PASSED[id]) delete PASSED[id]; else PASSED[id] = new Date().toISOString().slice(0, 10); savePassed(); }
         else SHOWPASSED = !SHOWPASSED;
         PIN = null; draw(); return; }
